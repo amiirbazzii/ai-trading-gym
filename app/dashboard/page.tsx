@@ -7,6 +7,7 @@ import Link from "next/link";
 import { Plus } from "lucide-react";
 import { createClient } from "@/utils/supabase/client";
 import { toast } from "sonner";
+import ETHPriceChart from "@/components/charts/ETHPriceChart";
 
 interface Trade {
     id: string;
@@ -111,6 +112,8 @@ export default function DashboardPage() {
                     </Button>
                 </Link>
             </div>
+
+            <ETHPriceChart />
 
             <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
                 {strategies.length > 0 ? (
