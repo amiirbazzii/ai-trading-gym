@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -10,16 +10,45 @@ import {
     SheetContent,
     SheetTrigger,
 } from "@/components/ui/sheet";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { createClient } from "@/utils/supabase/client";
+import { toast } from "sonner";
 
 export function Navbar() {
     const pathname = usePathname();
+    const router = useRouter();
     const [open, setOpen] = useState(false);
+    const [user, setUser] = useState<any>(null);
+    const supabase = createClient();
+
+    useEffect(() => {
+        const checkUser = async () => {
+            const { data: { user } } = await supabase.auth.getUser();
+            setUser(user);
+        };
+        checkUser();
+
+        // Listen for auth changes
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+            setUser(session?.user ?? null);
+            if (_event === 'SIGNED_OUT') {
+                router.push('/login');
+                router.refresh();
+            }
+        });
+
+        return () => subscription.unsubscribe();
+    }, [supabase, router]);
+
+    const handleLogout = async () => {
+        await supabase.auth.signOut();
+        toast.success("Logged out");
+        router.refresh();
+    };
 
     const links = [
-        { href: "/dashboard", label: "Dashboard" },
-        { href: "/trades/create", label: "New Trade" },
-        { href: "/login", label: "Login" },
+        { href: "/dashboard", label: "Dashboard", protected: true },
+        { href: "/trades/create", label: "New Trade", protected: true },
     ];
 
     return (
@@ -30,8 +59,8 @@ export function Navbar() {
                 </Link>
 
                 {/* Desktop Menu */}
-                <div className="hidden md:flex gap-6">
-                    {links.map((link) => (
+                <div className="hidden md:flex gap-6 items-center">
+                    {user && links.map((link) => (
                         <Link
                             key={link.href}
                             href={link.href}
@@ -45,6 +74,14 @@ export function Navbar() {
                             {link.label}
                         </Link>
                     ))}
+
+                    {user ? (
+                        <Button variant="ghost" onClick={handleLogout}>Logout</Button>
+                    ) : (
+                        <Link href="/login">
+                            <Button variant="default">Login</Button>
+                        </Link>
+                    )}
                 </div>
 
                 {/* Mobile Menu */}
@@ -58,7 +95,7 @@ export function Navbar() {
                         </SheetTrigger>
                         <SheetContent side="right">
                             <div className="flex flex-col gap-4 mt-8">
-                                {links.map((link) => (
+                                {user && links.map((link) => (
                                     <Link
                                         key={link.href}
                                         href={link.href}
@@ -73,6 +110,13 @@ export function Navbar() {
                                         {link.label}
                                     </Link>
                                 ))}
+                                {user ? (
+                                    <Button variant="ghost" onClick={() => { handleLogout(); setOpen(false); }}>Logout</Button>
+                                ) : (
+                                    <Link href="/login" onClick={() => setOpen(false)}>
+                                        <Button className="w-full">Login</Button>
+                                    </Link>
+                                )}
                             </div>
                         </SheetContent>
                     </Sheet>

@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { Plus } from "lucide-react";
-import { supabase } from "@/lib/supabase";
+import { createClient } from "@/utils/supabase/client";
 import { toast } from "sonner";
 
 interface Trade {
@@ -30,6 +30,9 @@ export default function DashboardPage() {
     const [trades, setTrades] = useState<Trade[]>([]);
     const [loading, setLoading] = useState(true);
     const [strategies, setStrategies] = useState<StrategyStats[]>([]);
+
+    // Create the client once
+    const supabase = createClient();
 
     useEffect(() => {
         fetchDashboardData();
@@ -60,7 +63,7 @@ export default function DashboardPage() {
 
             if (tradeError) throw tradeError;
 
-            const formattedTrades = tradeData.map((t: any) => ({
+            const formattedTrades = (tradeData || []).map((t: any) => ({
                 id: t.id,
                 direction: t.direction,
                 entry_price: t.entry_price,

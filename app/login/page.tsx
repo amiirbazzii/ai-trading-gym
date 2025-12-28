@@ -1,8 +1,9 @@
+
 "use client";
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabase";
+import { createClient } from "@/utils/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,6 +15,8 @@ export default function LoginPage() {
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
     const [isSignUp, setIsSignUp] = useState(false);
+
+    const supabase = createClient();
 
     const handleAuth = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -33,8 +36,10 @@ export default function LoginPage() {
                     password,
                 });
                 if (error) throw error;
+
                 toast.success("Logged in successfully!");
-                router.push("/trades/create");
+                router.refresh(); // Refresh to update server components/middleware state
+                router.push("/dashboard");
             }
         } catch (error: any) {
             toast.error(error.message);

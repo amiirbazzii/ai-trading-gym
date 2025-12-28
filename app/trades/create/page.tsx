@@ -23,7 +23,7 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { supabase } from "@/lib/supabase";
+import { createClient } from "@/utils/supabase/client";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 
@@ -63,6 +63,7 @@ export default function CreateTradePage() {
         },
     });
 
+    const supabase = createClient();
     const takeProfits = form.watch("takeProfits");
 
     useEffect(() => {
