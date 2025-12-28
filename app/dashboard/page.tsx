@@ -1,22 +1,33 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import Link from "next/link";
-import { Plus } from "lucide-react";
+import { Plus, Activity, TrendingUp, TrendingDown } from "lucide-react";
 import { createClient } from "@/utils/supabase/client";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 import ETHPriceChart from "@/components/charts/ETHPriceChart";
+import {
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TableHeader,
+    TableRow,
+} from "@/components/ui/table";
+import { formatDistanceToNow } from "date-fns";
 
 interface Trade {
     id: string;
-    direction: string;
+    direction: "long" | "short";
     entry_price: number;
     sl: number;
     status: string;
     created_at: string;
-    pnl?: string; // Derived or fetched
+    pnl?: string;
     ai_name?: string;
 }
 
@@ -32,7 +43,6 @@ export default function DashboardPage() {
     const [loading, setLoading] = useState(true);
     const [strategies, setStrategies] = useState<StrategyStats[]>([]);
 
-    // Create the client once
     const supabase = createClient();
 
     useEffect(() => {
@@ -52,13 +62,13 @@ export default function DashboardPage() {
             const { data: tradeData, error: tradeError } = await supabase
                 .from("trades")
                 .select(`
-          *,
-          trade_ai_attribution (
-            ai_strategies (
-              name
-            )
-          )
-        `)
+                  *,
+                  trade_ai_attribution (
+                    ai_strategies (
+                      name
+                    )
+                  )
+                `)
                 .eq("user_id", user.id)
                 .order("created_at", { ascending: false });
 
@@ -71,16 +81,13 @@ export default function DashboardPage() {
                 sl: t.sl,
                 status: t.status,
                 created_at: t.created_at,
-                pnl: "0.00%", // Placeholder until we have PnL logic
+                pnl: "0.00%",
                 ai_name: t.trade_ai_attribution?.[0]?.ai_strategies?.name || "None",
             }));
 
             setTrades(formattedTrades);
 
-            // 2. Fetch/Calculate Strategy Stats (Mocked calculation for now based entirely on fetched trades if needed, or fetched from ai_results)
-            // For Phase 1, we haven't populated ai_results yet, so we'll just show the unique strategies found in trades or default list.
-            // Let's just group the trades by strategy for a simple stat count.
-
+            // 2. Mock Stats Calculation
             const statsMap = new Map<string, StrategyStats>();
 
             formattedTrades.forEach((t) => {
@@ -103,37 +110,45 @@ export default function DashboardPage() {
     };
 
     return (
-        <div className="container mx-auto py-10 space-y-8">
-            <div className="flex justify-between items-center">
-                <h1 className="text-3xl font-bold">Dashboard</h1>
+        <div className="container max-w-7xl mx-auto py-10 px-6 space-y-8">
+            <div className="flex flex-col md:flex-row justify-between md:items-center gap-4">
+                <div>
+                    <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
+                    <p className="text-muted-foreground mt-1">
+                        Track your AI strategies and paper trades simulation.
+                    </p>
+                </div>
                 <Link href="/trades/create">
-                    <Button>
+                    <Button size="lg" className="shadow-sm">
                         <Plus className="mr-2 h-4 w-4" /> New Paper Trade
                     </Button>
                 </Link>
             </div>
 
-            <ETHPriceChart />
+            <div className="rounded-xl border bg-background shadow-sm overflow-hidden min-h-[500px]">
+                <ETHPriceChart />
+            </div>
 
-            <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
+            <div className="grid gap-6 md:grid-cols-3">
                 {strategies.length > 0 ? (
                     strategies.map((strategy) => (
-                        <Card key={strategy.name}>
+                        <Card key={strategy.name} className="bg-card hover:bg-accent/5 transition-colors">
                             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                                 <CardTitle className="text-sm font-medium">
                                     {strategy.name}
                                 </CardTitle>
+                                <Activity className="h-4 w-4 text-muted-foreground" />
                             </CardHeader>
                             <CardContent>
-                                <div className="text-2xl font-bold">{strategy.pnl.toFixed(2)}%</div>
-                                <p className="text-xs text-muted-foreground">
-                                    {strategy.trades} trades • {(strategy.wins / strategy.trades * 100) || 0}% win rate
+                                <div className="text-2xl font-bold">{strategy.trades}</div>
+                                <p className="text-xs text-muted-foreground mt-1">
+                                    Total Executed Trades
                                 </p>
                             </CardContent>
                         </Card>
                     ))
                 ) : (
-                    <div className="col-span-full text-center text-muted-foreground py-10">
+                    <div className="col-span-full py-12 text-center text-muted-foreground bg-muted/30 rounded-xl border border-dashed">
                         No strategies active yet. Create a trade to see stats.
                     </div>
                 )}
@@ -141,45 +156,69 @@ export default function DashboardPage() {
 
             <Card>
                 <CardHeader>
-                    <CardTitle>Recent Trades (Simulation Only)</CardTitle>
+                    <CardTitle>Recent Trades</CardTitle>
+                    <CardDescription>A list of your recent simulation trades.</CardDescription>
                 </CardHeader>
                 <CardContent>
-                    <div className="space-y-4">
-                        {loading ? (
-                            <div className="text-center py-4">Loading trades...</div>
-                        ) : trades.length > 0 ? (
-                            trades.map((trade) => (
-                                <div
-                                    key={trade.id}
-                                    className="flex flex-col sm:flex-row sm:items-center justify-between border-b pb-4 last:border-0 last:pb-0 gap-2 sm:gap-0"
-                                >
-                                    <div>
-                                        <div className="font-medium">
-                                            {trade.direction.toUpperCase()} ETH @ {trade.entry_price}
-                                        </div>
-                                        <div className="text-sm text-muted-foreground">
-                                            SL: {trade.sl} • Status: {trade.status} • Strategy: {trade.ai_name}
-                                        </div>
-                                    </div>
-                                    <div className="font-bold text-gray-500 self-end sm:self-auto">
-                                        OPEN
-                                    </div>
-                                </div>
-                            ))
-                        ) : (
-                            <div className="text-center py-4 text-muted-foreground">
-                                No trades found. Create your first paper trade!
-                            </div>
-                        )}
-                    </div>
+                    <Table>
+                        <TableHeader>
+                            <TableRow>
+                                <TableHead>Date</TableHead>
+                                <TableHead>Strategy</TableHead>
+                                <TableHead>Direction</TableHead>
+                                <TableHead>Entry Price</TableHead>
+                                <TableHead>Status</TableHead>
+                                <TableHead className="text-right">PnL (Est)</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {loading ? (
+                                <TableRow>
+                                    <TableCell colSpan={6} className="text-center py-8">Loading trades...</TableCell>
+                                </TableRow>
+                            ) : trades.length > 0 ? (
+                                trades.map((trade) => (
+                                    <TableRow key={trade.id}>
+                                        <TableCell className="text-muted-foreground text-sm">
+                                            {formatDistanceToNow(new Date(trade.created_at), { addSuffix: true })}
+                                        </TableCell>
+                                        <TableCell className="font-medium">{trade.ai_name}</TableCell>
+                                        <TableCell>
+                                            <Badge
+                                                variant="outline"
+                                                className={cn(
+                                                    "border-none",
+                                                    trade.direction === 'long'
+                                                        ? 'bg-green-100 text-green-800 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400'
+                                                        : 'bg-red-100 text-red-800 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400'
+                                                )}
+                                            >
+                                                {trade.direction === "long" ? <TrendingUp className="mr-1 h-3 w-3" /> : <TrendingDown className="mr-1 h-3 w-3" />}
+                                                {trade.direction.toUpperCase()}
+                                            </Badge>
+                                        </TableCell>
+                                        <TableCell>${trade.entry_price.toLocaleString()}</TableCell>
+                                        <TableCell>
+                                            <Badge variant="outline" className="capitalize">
+                                                {trade.status}
+                                            </Badge>
+                                        </TableCell>
+                                        <TableCell className="text-right font-medium text-muted-foreground">
+                                            {trade.pnl}
+                                        </TableCell>
+                                    </TableRow>
+                                ))
+                            ) : (
+                                <TableRow>
+                                    <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
+                                        No recent trades found.
+                                    </TableCell>
+                                </TableRow>
+                            )}
+                        </TableBody>
+                    </Table>
                 </CardContent>
             </Card>
-
-            {!loading && trades.length === 0 && (
-                <div className="p-4 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-800">
-                    Debug: If you created a trade but don't see it here, ensure you are logged in and checks RLS policies.
-                </div>
-            )}
         </div>
     );
 }

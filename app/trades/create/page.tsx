@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { Plus, Trash2, Check, ChevronsUpDown } from "lucide-react";
+import { Plus, Trash2, Check, ChevronsUpDown, TrendingUp, TrendingDown, Activity } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -36,7 +36,7 @@ import {
     PopoverContent,
     PopoverTrigger,
 } from "@/components/ui/popover";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { createClient } from "@/utils/supabase/client";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
@@ -185,203 +185,250 @@ export default function CreateTradePage() {
     };
 
     return (
-        <div className="container max-w-2xl mx-auto py-10">
-            <Card>
-                <CardHeader>
-                    <CardTitle>Create Paper Trade</CardTitle>
-                </CardHeader>
-                <CardContent>
-                    <Form {...form}>
-                        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-                            <FormField
-                                control={form.control}
-                                name="direction"
-                                render={({ field }) => (
-                                    <FormItem>
-                                        <FormLabel>Direction</FormLabel>
-                                        <Select
-                                            onValueChange={field.onChange}
-                                            defaultValue={field.value}
-                                        >
-                                            <FormControl>
-                                                <SelectTrigger>
-                                                    <SelectValue placeholder="Select direction" />
-                                                </SelectTrigger>
-                                            </FormControl>
-                                            <SelectContent>
-                                                <SelectItem value="long">Long</SelectItem>
-                                                <SelectItem value="short">Short</SelectItem>
-                                            </SelectContent>
-                                        </Select>
-                                        <FormMessage />
-                                    </FormItem>
-                                )}
-                            />
+        <div className="container max-w-3xl mx-auto py-12 px-6">
+            <div className="mb-8 space-y-2">
+                <h1 className="text-3xl font-bold tracking-tight">New Paper Trade</h1>
+                <p className="text-muted-foreground">
+                    Simulate a new trade position and track its performance against your AI strategies.
+                </p>
+            </div>
 
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <FormField
-                                    control={form.control}
-                                    name="entryPrice"
-                                    render={({ field }) => (
-                                        <FormItem>
-                                            <FormLabel>Entry Price (ETH)</FormLabel>
-                                            <FormControl>
-                                                <Input placeholder="0.00" {...field} />
-                                            </FormControl>
-                                            <FormMessage />
-                                        </FormItem>
-                                    )}
-                                />
+            <div className="grid gap-8">
+                <Card className="shadow-md border-muted/50">
+                    <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                            <Activity className="h-5 w-5 text-primary" />
+                            Trade Configuration
+                        </CardTitle>
+                        <CardDescription>
+                            Define the parameters for your simulated trade.
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                        <Form {...form}>
+                            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
 
-                                <FormField
-                                    control={form.control}
-                                    name="stopLoss"
-                                    render={({ field }) => (
-                                        <FormItem>
-                                            <FormLabel>Stop Loss (ETH)</FormLabel>
-                                            <FormControl>
-                                                <Input placeholder="0.00" {...field} />
-                                            </FormControl>
-                                            <FormMessage />
-                                        </FormItem>
-                                    )}
-                                />
-                            </div>
-
-                            <div className="space-y-4">
-                                <FormLabel>Take Profits</FormLabel>
-                                {takeProfits.map((_, index) => (
-                                    <div key={index} className="flex gap-2">
-                                        <FormField
-                                            control={form.control}
-                                            name={`takeProfits.${index}.price`}
-                                            render={({ field }) => (
-                                                <FormItem className="flex-1">
-                                                    <FormControl>
-                                                        <Input placeholder={`TP ${index + 1} Price`} {...field} />
-                                                    </FormControl>
-                                                    <FormMessage />
-                                                </FormItem>
-                                            )}
-                                        />
-                                        {takeProfits.length > 1 && (
-                                            <Button
-                                                type="button"
-                                                variant="ghost"
-                                                size="icon"
-                                                onClick={() => {
-                                                    const currentTps = form.getValues("takeProfits");
-                                                    form.setValue(
-                                                        "takeProfits",
-                                                        currentTps.filter((_, i) => i !== index)
-                                                    );
-                                                }}
-                                            >
-                                                <Trash2 className="h-4 w-4" />
-                                            </Button>
-                                        )}
-                                    </div>
-                                ))}
-                                <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
-                                    className="mt-2"
-                                    onClick={() => {
-                                        const currentTps = form.getValues("takeProfits");
-                                        form.setValue("takeProfits", [...currentTps, { price: "" }]);
-                                    }}
-                                >
-                                    <Plus className="h-4 w-4 mr-2" /> Add TP
-                                </Button>
-                            </div>
-
-                            <FormField
-                                control={form.control}
-                                name="aiStrategyId"
-                                render={({ field }) => (
-                                    <FormItem className="flex flex-col">
-                                        <FormLabel>AI Strategy Attribution</FormLabel>
-                                        <Popover open={open} onOpenChange={setOpen}>
-                                            <PopoverTrigger asChild>
-                                                <FormControl>
-                                                    <Button
-                                                        variant="outline"
-                                                        role="combobox"
-                                                        aria-expanded={open}
+                                {/* Direction Selection */}
+                                <div className="space-y-4">
+                                    <FormField
+                                        control={form.control}
+                                        name="direction"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel className="text-base font-semibold">Market Direction</FormLabel>
+                                                <div className="flex gap-4">
+                                                    <div
                                                         className={cn(
-                                                            "w-full justify-between",
-                                                            !field.value && "text-muted-foreground"
+                                                            "cursor-pointer flex-1 border rounded-lg p-4 flex items-center justify-center gap-2 transition-all hover:border-primary",
+                                                            field.value === 'long' ? "border-green-500 bg-green-50/50 ring-1 ring-green-500" : "bg-card"
                                                         )}
+                                                        onClick={() => field.onChange("long")}
                                                     >
-                                                        {field.value
-                                                            ? strategies.find(
-                                                                (strategy) => strategy.id === field.value
-                                                            )?.name
-                                                            : "Select AI Strategy"}
-                                                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                                                    </Button>
-                                                </FormControl>
-                                            </PopoverTrigger>
-                                            <PopoverContent className="w-[200px] p-0">
-                                                <Command>
-                                                    <CommandInput
-                                                        placeholder="Search strategy..."
-                                                        value={query}
-                                                        onValueChange={setQuery}
-                                                    />
-                                                    <CommandList>
-                                                        <CommandEmpty>
-                                                            <div className="p-2">
-                                                                <p className="text-sm text-muted-foreground mb-2">No strategy found.</p>
-                                                                <Button
-                                                                    variant="secondary"
-                                                                    size="sm"
-                                                                    className="w-full"
-                                                                    onClick={createStrategy}
-                                                                >
-                                                                    Create "{query}"
-                                                                </Button>
-                                                            </div>
-                                                        </CommandEmpty>
-                                                        <CommandGroup>
-                                                            {strategies.map((strategy) => (
-                                                                <CommandItem
-                                                                    value={strategy.name}
-                                                                    key={strategy.id}
-                                                                    onSelect={() => {
-                                                                        form.setValue("aiStrategyId", strategy.id);
-                                                                        setOpen(false);
-                                                                    }}
-                                                                >
-                                                                    <Check
-                                                                        className={cn(
-                                                                            "mr-2 h-4 w-4",
-                                                                            strategy.id === field.value
-                                                                                ? "opacity-100"
-                                                                                : "opacity-0"
-                                                                        )}
-                                                                    />
-                                                                    {strategy.name}
-                                                                </CommandItem>
-                                                            ))}
-                                                        </CommandGroup>
-                                                    </CommandList>
-                                                </Command>
-                                            </PopoverContent>
-                                        </Popover>
-                                        <FormMessage />
-                                    </FormItem>
-                                )}
-                            />
+                                                        <TrendingUp className={cn("h-5 w-5", field.value === 'long' ? "text-green-600" : "text-muted-foreground")} />
+                                                        <span className={cn("font-medium", field.value === 'long' ? "text-green-700" : "text-foreground")}>Long</span>
+                                                    </div>
+                                                    <div
+                                                        className={cn(
+                                                            "cursor-pointer flex-1 border rounded-lg p-4 flex items-center justify-center gap-2 transition-all hover:border-primary",
+                                                            field.value === 'short' ? "border-red-500 bg-red-50/50 ring-1 ring-red-500" : "bg-card"
+                                                        )}
+                                                        onClick={() => field.onChange("short")}
+                                                    >
+                                                        <TrendingDown className={cn("h-5 w-5", field.value === 'short' ? "text-red-600" : "text-muted-foreground")} />
+                                                        <span className={cn("font-medium", field.value === 'short' ? "text-red-700" : "text-foreground")}>Short</span>
+                                                    </div>
+                                                </div>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
+                                </div>
 
-                            <Button type="submit" className="w-full" disabled={loading}>
-                                {loading ? "Creating..." : "Create Paper Trade"}
-                            </Button>
-                        </form>
-                    </Form>
-                </CardContent>
-            </Card>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <FormField
+                                        control={form.control}
+                                        name="entryPrice"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel>Entry Price (ETH)</FormLabel>
+                                                <FormControl>
+                                                    <div className="relative">
+                                                        <span className="absolute left-3 top-2.5 text-muted-foreground">$</span>
+                                                        <Input placeholder="0.00" className="pl-7" {...field} />
+                                                    </div>
+                                                </FormControl>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
+
+                                    <FormField
+                                        control={form.control}
+                                        name="stopLoss"
+                                        render={({ field }) => (
+                                            <FormItem>
+                                                <FormLabel>Stop Loss (ETH)</FormLabel>
+                                                <FormControl>
+                                                    <div className="relative">
+                                                        <span className="absolute left-3 top-2.5 text-muted-foreground">$</span>
+                                                        <Input placeholder="0.00" className="pl-7" {...field} />
+                                                    </div>
+                                                </FormControl>
+                                                <FormMessage />
+                                            </FormItem>
+                                        )}
+                                    />
+                                </div>
+
+                                {/* Take Profits Section */}
+                                <div className="rounded-lg border p-4 bg-muted/20 space-y-4">
+                                    <div className="flex items-center justify-between">
+                                        <FormLabel className="text-base">Take Profits</FormLabel>
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            size="sm"
+                                            onClick={() => {
+                                                const currentTps = form.getValues("takeProfits");
+                                                form.setValue("takeProfits", [...currentTps, { price: "" }]);
+                                            }}
+                                        >
+                                            <Plus className="h-3 w-3 mr-2" /> Add Level
+                                        </Button>
+                                    </div>
+
+                                    <div className="space-y-3">
+                                        {takeProfits.map((_, index) => (
+                                            <div key={index} className="flex gap-3 items-start">
+                                                <FormField
+                                                    control={form.control}
+                                                    name={`takeProfits.${index}.price`}
+                                                    render={({ field }) => (
+                                                        <FormItem className="flex-1">
+                                                            <FormControl>
+                                                                <div className="relative">
+                                                                    <span className="absolute left-3 top-2.5 text-muted-foreground text-xs">TP {index + 1}</span>
+                                                                    <Input placeholder="Price" className="pl-12" {...field} />
+                                                                </div>
+                                                            </FormControl>
+                                                            <FormMessage />
+                                                        </FormItem>
+                                                    )}
+                                                />
+                                                {takeProfits.length > 1 && (
+                                                    <Button
+                                                        type="button"
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        className="text-muted-foreground hover:text-destructive"
+                                                        onClick={() => {
+                                                            const currentTps = form.getValues("takeProfits");
+                                                            form.setValue(
+                                                                "takeProfits",
+                                                                currentTps.filter((_, i) => i !== index)
+                                                            );
+                                                        }}
+                                                    >
+                                                        <Trash2 className="h-4 w-4" />
+                                                    </Button>
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                <FormField
+                                    control={form.control}
+                                    name="aiStrategyId"
+                                    render={({ field }) => (
+                                        <FormItem className="flex flex-col">
+                                            <div className="flex flex-col gap-1">
+                                                <FormLabel className="text-base">AI Strategy Attribution</FormLabel>
+                                                <p className="text-xs text-muted-foreground">Which strategy generated this signal?</p>
+                                            </div>
+                                            <Popover open={open} onOpenChange={setOpen}>
+                                                <PopoverTrigger asChild>
+                                                    <FormControl>
+                                                        <Button
+                                                            variant="outline"
+                                                            role="combobox"
+                                                            aria-expanded={open}
+                                                            className={cn(
+                                                                "w-full justify-between pl-3 text-left font-normal",
+                                                                !field.value && "text-muted-foreground"
+                                                            )}
+                                                        >
+                                                            {field.value
+                                                                ? strategies.find(
+                                                                    (strategy) => strategy.id === field.value
+                                                                )?.name
+                                                                : "Select or creation a strategy"}
+                                                            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                                        </Button>
+                                                    </FormControl>
+                                                </PopoverTrigger>
+                                                <PopoverContent className="w-[300px] p-0" align="start">
+                                                    <Command>
+                                                        <CommandInput
+                                                            placeholder="Search strategy..."
+                                                            value={query}
+                                                            onValueChange={setQuery}
+                                                        />
+                                                        <CommandList>
+                                                            <CommandEmpty>
+                                                                <div className="p-4 text-center">
+                                                                    <p className="text-sm text-muted-foreground mb-3">No strategy found.</p>
+                                                                    <Button
+                                                                        size="sm"
+                                                                        className="w-full"
+                                                                        onClick={createStrategy}
+                                                                    >
+                                                                        <Plus className="mr-2 h-3 w-3" />
+                                                                        Create "{query}"
+                                                                    </Button>
+                                                                </div>
+                                                            </CommandEmpty>
+                                                            <CommandGroup heading="Existing Strategies">
+                                                                {strategies.map((strategy) => (
+                                                                    <CommandItem
+                                                                        value={strategy.name}
+                                                                        key={strategy.id}
+                                                                        onSelect={() => {
+                                                                            form.setValue("aiStrategyId", strategy.id);
+                                                                            setOpen(false);
+                                                                        }}
+                                                                    >
+                                                                        <Check
+                                                                            className={cn(
+                                                                                "mr-2 h-4 w-4",
+                                                                                strategy.id === field.value
+                                                                                    ? "opacity-100"
+                                                                                    : "opacity-0"
+                                                                            )}
+                                                                        />
+                                                                        {strategy.name}
+                                                                    </CommandItem>
+                                                                ))}
+                                                            </CommandGroup>
+                                                        </CommandList>
+                                                    </Command>
+                                                </PopoverContent>
+                                            </Popover>
+                                            <FormMessage />
+                                        </FormItem>
+                                    )}
+                                />
+
+                                <div className="pt-4">
+                                    <Button type="submit" size="lg" className="w-full font-semibold shadow-md" disabled={loading}>
+                                        {loading ? "Creating..." : "Create Paper Trade"}
+                                    </Button>
+                                </div>
+                            </form>
+                        </Form>
+                    </CardContent>
+                </Card>
+            </div>
         </div>
     );
 }
