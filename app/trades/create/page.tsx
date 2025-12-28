@@ -4,7 +4,8 @@ import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, Check, ChevronsUpDown } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -22,6 +23,19 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
+import {
+    Command,
+    CommandEmpty,
+    CommandGroup,
+    CommandInput,
+    CommandItem,
+    CommandList,
+} from "@/components/ui/command";
+import {
+    Popover,
+    PopoverContent,
+    PopoverTrigger,
+} from "@/components/ui/popover";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { createClient } from "@/utils/supabase/client";
 import { toast } from "sonner";
@@ -51,6 +65,8 @@ export default function CreateTradePage() {
         []
     );
     const [loading, setLoading] = useState(false);
+    const [open, setOpen] = useState(false);
+    const [query, setQuery] = useState("");
 
     const form = useForm<z.infer<typeof formSchema>>({
         resolver: zodResolver(formSchema),
@@ -80,6 +96,32 @@ export default function CreateTradePage() {
         fetchStrategies();
     }, []);
 
+    const createStrategy = async () => {
+        if (!query) return;
+
+        const newStrategyName = query;
+        // Optimistic updatish or waiting
+        try {
+            const { data, error } = await supabase.from('ai_strategies').insert({
+                name: newStrategyName,
+                description: 'User created strategy'
+            }).select().single();
+
+            if (error) throw error;
+
+            if (data) {
+                setStrategies((prev) => [...prev, data]);
+                form.setValue("aiStrategyId", data.id);
+                setOpen(false);
+                setQuery("");
+                toast.success(`Strategy "${data.name}" created`);
+            }
+        } catch (error: any) {
+            console.error("Error creating strategy:", error);
+            toast.error("Failed to create strategy");
+        }
+    };
+
     const onSubmit = async (values: z.infer<typeof formSchema>) => {
         setLoading(true);
         console.log("Submitting trade...", values);
@@ -91,16 +133,11 @@ export default function CreateTradePage() {
 
             if (!user) {
                 toast.error("You must be logged in to create a trade");
-                console.error("No user found in session");
-                // Redirect to login if not logged in
                 router.push("/login");
                 return;
             }
 
-            console.log("User found:", user.id);
-
             // 1. Create Trade
-            console.log("Inserting trade...");
             const { data: trade, error: tradeError } = await supabase
                 .from("trades")
                 .insert({
@@ -115,10 +152,8 @@ export default function CreateTradePage() {
 
             if (tradeError) {
                 console.error("Trade Insert Error:", tradeError);
-                throw new Error(`Trade insert failed: ${tradeError.message} (${tradeError.code})`);
+                throw new Error(`Trade insert failed: ${tradeError.message}`);
             }
-
-            console.log("Trade created:", trade);
 
             // 2. Create TPs
             const tps = values.takeProfits.map((tp) => ({
@@ -127,10 +162,7 @@ export default function CreateTradePage() {
             }));
 
             const { error: tpError } = await supabase.from("trade_tps").insert(tps);
-            if (tpError) {
-                console.error("TP Insert Error:", tpError);
-                throw new Error(`TP insert failed: ${tpError.message}`);
-            }
+            if (tpError) throw new Error(`TP insert failed: ${tpError.message}`);
 
             // 3. Associate with AI Strategy
             const { error: aiError } = await supabase
@@ -140,18 +172,13 @@ export default function CreateTradePage() {
                     ai_strategy_id: values.aiStrategyId,
                 });
 
-            if (aiError) {
-                console.error("AI Attribution Error:", aiError);
-                throw new Error(`AI attribution failed: ${aiError.message}`);
-            }
+            if (aiError) throw new Error(`AI attribution failed: ${aiError.message}`);
 
-            console.log("All inserts successful");
             toast.success("Paper trade created successfully!");
             router.push("/dashboard");
         } catch (error: any) {
             console.error("Error creating trade:", error);
             toast.error(error.message || "Failed to create trade");
-            // Do NOT redirect, let user see the error
         } finally {
             setLoading(false);
         }
@@ -273,25 +300,76 @@ export default function CreateTradePage() {
                                 control={form.control}
                                 name="aiStrategyId"
                                 render={({ field }) => (
-                                    <FormItem>
+                                    <FormItem className="flex flex-col">
                                         <FormLabel>AI Strategy Attribution</FormLabel>
-                                        <Select
-                                            onValueChange={field.onChange}
-                                            defaultValue={field.value}
-                                        >
-                                            <FormControl>
-                                                <SelectTrigger>
-                                                    <SelectValue placeholder="Select AI Strategy" />
-                                                </SelectTrigger>
-                                            </FormControl>
-                                            <SelectContent>
-                                                {strategies.map((strategy) => (
-                                                    <SelectItem key={strategy.id} value={strategy.id}>
-                                                        {strategy.name}
-                                                    </SelectItem>
-                                                ))}
-                                            </SelectContent>
-                                        </Select>
+                                        <Popover open={open} onOpenChange={setOpen}>
+                                            <PopoverTrigger asChild>
+                                                <FormControl>
+                                                    <Button
+                                                        variant="outline"
+                                                        role="combobox"
+                                                        aria-expanded={open}
+                                                        className={cn(
+                                                            "w-full justify-between",
+                                                            !field.value && "text-muted-foreground"
+                                                        )}
+                                                    >
+                                                        {field.value
+                                                            ? strategies.find(
+                                                                (strategy) => strategy.id === field.value
+                                                            )?.name
+                                                            : "Select AI Strategy"}
+                                                        <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                                                    </Button>
+                                                </FormControl>
+                                            </PopoverTrigger>
+                                            <PopoverContent className="w-[200px] p-0">
+                                                <Command>
+                                                    <CommandInput
+                                                        placeholder="Search strategy..."
+                                                        value={query}
+                                                        onValueChange={setQuery}
+                                                    />
+                                                    <CommandList>
+                                                        <CommandEmpty>
+                                                            <div className="p-2">
+                                                                <p className="text-sm text-muted-foreground mb-2">No strategy found.</p>
+                                                                <Button
+                                                                    variant="secondary"
+                                                                    size="sm"
+                                                                    className="w-full"
+                                                                    onClick={createStrategy}
+                                                                >
+                                                                    Create "{query}"
+                                                                </Button>
+                                                            </div>
+                                                        </CommandEmpty>
+                                                        <CommandGroup>
+                                                            {strategies.map((strategy) => (
+                                                                <CommandItem
+                                                                    value={strategy.name}
+                                                                    key={strategy.id}
+                                                                    onSelect={() => {
+                                                                        form.setValue("aiStrategyId", strategy.id);
+                                                                        setOpen(false);
+                                                                    }}
+                                                                >
+                                                                    <Check
+                                                                        className={cn(
+                                                                            "mr-2 h-4 w-4",
+                                                                            strategy.id === field.value
+                                                                                ? "opacity-100"
+                                                                                : "opacity-0"
+                                                                        )}
+                                                                    />
+                                                                    {strategy.name}
+                                                                </CommandItem>
+                                                            ))}
+                                                        </CommandGroup>
+                                                    </CommandList>
+                                                </Command>
+                                            </PopoverContent>
+                                        </Popover>
                                         <FormMessage />
                                     </FormItem>
                                 )}
