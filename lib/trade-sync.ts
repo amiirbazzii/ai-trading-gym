@@ -232,8 +232,12 @@ async function processTrade(supabase: any, trade: Trade, currentPrice: number) {
     const unhitTps = tps.filter(tp => !tp.is_hit);
     const hitTps = tps.filter(tp => tp.is_hit);
 
+    // Safety defaults if migration wasn't run
+    const positionSize = trade.position_size ?? 10;
+    const remainingPosition = trade.remaining_position ?? 10;
+
     // Capital allocated per TP = position_size / total_tps
-    const capitalPerTp = totalTps > 0 ? trade.position_size / totalTps : 0;
+    const capitalPerTp = totalTps > 0 ? positionSize / totalTps : 0;
 
     // ========================================
     // Check Stop Loss First
@@ -255,7 +259,7 @@ async function processTrade(supabase: any, trade: Trade, currentPrice: number) {
     // ========================================
     let tpsHitThisSync = 0;
     let totalNewPnl = 0;
-    let newRemainingPosition = trade.remaining_position;
+    let newRemainingPosition = remainingPosition;
 
     for (const tp of unhitTps) {
         const tpTriggered = isPriceTriggered(
@@ -304,7 +308,7 @@ async function processTrade(supabase: any, trade: Trade, currentPrice: number) {
     // Update Trade State
     // ========================================
     if (tpsHitThisSync > 0) {
-        const newTotalPnl = trade.pnl + totalNewPnl;
+        const newTotalPnl = (trade.pnl || 0) + totalNewPnl;
         const totalHitTps = hitTps.length + tpsHitThisSync;
 
         // Check if all TPs are now hit
@@ -339,21 +343,25 @@ async function handleStopLoss(
     currentPrice: number,
     hadPartialTps: boolean
 ) {
+    // Safety default if migration wasn't run
+    const remainingPosition = trade.remaining_position ?? 10;
+
     // Calculate SL loss on remaining position
     const slLoss = calculateSlLoss(
         trade.direction,
         trade.entry_price,
         trade.sl,
-        trade.remaining_position
+        remainingPosition
     );
 
-    const finalPnl = trade.pnl + slLoss;
+    const finalPnl = (trade.pnl || 0) + slLoss;
     const finalStatus = hadPartialTps ? 'tp_partial_then_sl' : 'sl_hit';
 
     console.log(
         `[Trade Sync] Trade ${trade.id} hit SL at $${trade.sl.toFixed(2)}. ` +
-        `Loss: $${slLoss.toFixed(4)}. Final PnL: $${finalPnl.toFixed(4)}. ` +
-        `Status: ${finalStatus}`
+        `Entry: $${trade.entry_price}, Direction: ${trade.direction}, ` +
+        `Remaining: $${remainingPosition}. Loss: $${slLoss.toFixed(4)}. ` +
+        `Final PnL: $${finalPnl.toFixed(4)}. Status: ${finalStatus}`
     );
 
     await closeTrade(supabase, trade, finalStatus, finalPnl, currentPrice);
