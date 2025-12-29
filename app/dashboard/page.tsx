@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import Link from "next/link";
-import { Plus, Activity, TrendingUp, TrendingDown, Wallet } from "lucide-react";
+import { Plus, Activity, TrendingUp, TrendingDown, Wallet, Target, ShieldX, CheckCircle2 } from "lucide-react";
 import { createClient } from "@/utils/supabase/client";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -19,6 +19,12 @@ import {
     TableRow,
 } from "@/components/ui/table";
 import { formatDistanceToNow } from "date-fns";
+import {
+    Tooltip,
+    TooltipContent,
+    TooltipProvider,
+    TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 // ============================================
 // Types
@@ -32,6 +38,12 @@ type TradeStatus =
     | "sl_hit"
     | "cancelled";
 
+interface TakeProfit {
+    id: string;
+    tp_price: number;
+    is_hit: boolean;
+}
+
 interface Trade {
     id: string;
     direction: "long" | "short";
@@ -41,6 +53,7 @@ interface Trade {
     created_at: string;
     pnl: number;
     ai_name?: string;
+    tps: TakeProfit[];
 }
 
 interface StrategyStats {
@@ -121,11 +134,16 @@ export default function DashboardPage() {
                 return;
             }
 
-            // 1. Fetch Trades with related Strategy info
+            // 1. Fetch Trades with related Strategy info and TPs
             const { data: tradeData, error: tradeError } = await supabase
                 .from("trades")
                 .select(`
                   *,
+                  trade_tps (
+                    id,
+                    tp_price,
+                    is_hit
+                  ),
                   trade_ai_attribution (
                     ai_strategies (
                       id,
@@ -147,6 +165,7 @@ export default function DashboardPage() {
                 created_at: t.created_at,
                 pnl: t.pnl || 0,
                 ai_name: t.trade_ai_attribution?.[0]?.ai_strategies?.name || "None",
+                tps: (t.trade_tps || []).sort((a: TakeProfit, b: TakeProfit) => a.tp_price - b.tp_price),
             }));
 
             setTrades(formattedTrades);
@@ -202,6 +221,59 @@ export default function DashboardPage() {
             <Badge variant="outline" className={config.className}>
                 {config.label}
             </Badge>
+        );
+    };
+
+    // Format TPs display with hit indicators
+    const formatTPs = (tps: TakeProfit[], direction: "long" | "short") => {
+        if (tps.length === 0) return <span className="text-muted-foreground">-</span>;
+
+        // Sort TPs by price (ascending for long, descending for short)
+        const sortedTps = [...tps].sort((a, b) =>
+            direction === 'long' ? a.tp_price - b.tp_price : b.tp_price - a.tp_price
+        );
+
+        return (
+            <TooltipProvider>
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <div className="flex items-center gap-1">
+                            <Target className="h-3.5 w-3.5 text-muted-foreground" />
+                            <div className="flex gap-1.5">
+                                {sortedTps.map((tp, idx) => (
+                                    <span
+                                        key={tp.id}
+                                        className={cn(
+                                            "text-xs px-1.5 py-0.5 rounded font-medium",
+                                            tp.is_hit
+                                                ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400"
+                                                : "bg-muted text-muted-foreground"
+                                        )}
+                                    >
+                                        {tp.is_hit && <CheckCircle2 className="inline h-3 w-3 mr-0.5" />}
+                                        ${tp.tp_price.toLocaleString()}
+                                    </span>
+                                ))}
+                            </div>
+                        </div>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                        <div className="text-xs space-y-1">
+                            <p className="font-semibold">Take Profits ({tps.filter(t => t.is_hit).length}/{tps.length} hit)</p>
+                            {sortedTps.map((tp, idx) => (
+                                <div key={tp.id} className="flex items-center gap-2">
+                                    <span>TP{idx + 1}: ${tp.tp_price.toLocaleString()}</span>
+                                    {tp.is_hit ? (
+                                        <Badge variant="outline" className="text-[10px] py-0 h-4 bg-green-100 text-green-700 border-green-200">Hit</Badge>
+                                    ) : (
+                                        <Badge variant="outline" className="text-[10px] py-0 h-4">Pending</Badge>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    </TooltipContent>
+                </Tooltip>
+            </TooltipProvider>
         );
     };
 
@@ -278,67 +350,84 @@ export default function DashboardPage() {
             <Card>
                 <CardHeader>
                     <CardTitle>Recent Trades</CardTitle>
-                    <CardDescription>A list of your recent simulation trades.</CardDescription>
+                    <CardDescription>A list of your recent simulation trades with complete setup details.</CardDescription>
                 </CardHeader>
                 <CardContent>
-                    <Table>
-                        <TableHeader>
-                            <TableRow>
-                                <TableHead>Date</TableHead>
-                                <TableHead>Strategy</TableHead>
-                                <TableHead>Direction</TableHead>
-                                <TableHead>Entry Price</TableHead>
-                                <TableHead>Status</TableHead>
-                                <TableHead className="text-right">PnL</TableHead>
-                            </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                            {loading ? (
+                    <div className="overflow-x-auto">
+                        <Table>
+                            <TableHeader>
                                 <TableRow>
-                                    <TableCell colSpan={6} className="text-center py-8">Loading trades...</TableCell>
+                                    <TableHead>Date</TableHead>
+                                    <TableHead>Strategy</TableHead>
+                                    <TableHead>Direction</TableHead>
+                                    <TableHead>Entry</TableHead>
+                                    <TableHead>Stop Loss</TableHead>
+                                    <TableHead>Take Profits</TableHead>
+                                    <TableHead>Status</TableHead>
+                                    <TableHead className="text-right">PnL</TableHead>
                                 </TableRow>
-                            ) : trades.length > 0 ? (
-                                trades.map((trade) => (
-                                    <TableRow key={trade.id}>
-                                        <TableCell className="text-muted-foreground text-sm">
-                                            {formatDistanceToNow(new Date(trade.created_at), { addSuffix: true })}
-                                        </TableCell>
-                                        <TableCell className="font-medium">{trade.ai_name}</TableCell>
-                                        <TableCell>
-                                            <Badge
-                                                variant="outline"
-                                                className={cn(
-                                                    "border-none",
-                                                    trade.direction === 'long'
-                                                        ? 'bg-green-100 text-green-800 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400'
-                                                        : 'bg-red-100 text-red-800 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400'
-                                                )}
-                                            >
-                                                {trade.direction === "long" ? <TrendingUp className="mr-1 h-3 w-3" /> : <TrendingDown className="mr-1 h-3 w-3" />}
-                                                {trade.direction.toUpperCase()}
-                                            </Badge>
-                                        </TableCell>
-                                        <TableCell>${trade.entry_price.toLocaleString()}</TableCell>
-                                        <TableCell>
-                                            {getStatusBadge(trade.status)}
-                                        </TableCell>
-                                        <TableCell className={cn(
-                                            "text-right font-medium",
-                                            trade.pnl > 0 ? "text-green-600" : trade.pnl < 0 ? "text-red-600" : "text-muted-foreground"
-                                        )}>
-                                            {trade.pnl > 0 ? "+" : ""}${trade.pnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </TableHeader>
+                            <TableBody>
+                                {loading ? (
+                                    <TableRow>
+                                        <TableCell colSpan={8} className="text-center py-8">Loading trades...</TableCell>
+                                    </TableRow>
+                                ) : trades.length > 0 ? (
+                                    trades.map((trade) => (
+                                        <TableRow key={trade.id}>
+                                            <TableCell className="text-muted-foreground text-sm whitespace-nowrap">
+                                                {formatDistanceToNow(new Date(trade.created_at), { addSuffix: true })}
+                                            </TableCell>
+                                            <TableCell className="font-medium">{trade.ai_name}</TableCell>
+                                            <TableCell>
+                                                <Badge
+                                                    variant="outline"
+                                                    className={cn(
+                                                        "border-none",
+                                                        trade.direction === 'long'
+                                                            ? 'bg-green-100 text-green-800 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400'
+                                                            : 'bg-red-100 text-red-800 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400'
+                                                    )}
+                                                >
+                                                    {trade.direction === "long" ? <TrendingUp className="mr-1 h-3 w-3" /> : <TrendingDown className="mr-1 h-3 w-3" />}
+                                                    {trade.direction.toUpperCase()}
+                                                </Badge>
+                                            </TableCell>
+                                            <TableCell className="font-medium">
+                                                ${trade.entry_price.toLocaleString()}
+                                            </TableCell>
+                                            <TableCell>
+                                                <div className="flex items-center gap-1.5">
+                                                    <ShieldX className="h-3.5 w-3.5 text-red-500" />
+                                                    <span className="text-red-600 dark:text-red-400 font-medium">
+                                                        ${trade.sl.toLocaleString()}
+                                                    </span>
+                                                </div>
+                                            </TableCell>
+                                            <TableCell>
+                                                {formatTPs(trade.tps, trade.direction)}
+                                            </TableCell>
+                                            <TableCell>
+                                                {getStatusBadge(trade.status)}
+                                            </TableCell>
+                                            <TableCell className={cn(
+                                                "text-right font-medium whitespace-nowrap",
+                                                trade.pnl > 0 ? "text-green-600" : trade.pnl < 0 ? "text-red-600" : "text-muted-foreground"
+                                            )}>
+                                                {trade.pnl > 0 ? "+" : ""}${trade.pnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                            </TableCell>
+                                        </TableRow>
+                                    ))
+                                ) : (
+                                    <TableRow>
+                                        <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                                            No recent trades found.
                                         </TableCell>
                                     </TableRow>
-                                ))
-                            ) : (
-                                <TableRow>
-                                    <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                                        No recent trades found.
-                                    </TableCell>
-                                </TableRow>
-                            )}
-                        </TableBody>
-                    </Table>
+                                )}
+                            </TableBody>
+                        </Table>
+                    </div>
                 </CardContent>
             </Card>
         </div>
