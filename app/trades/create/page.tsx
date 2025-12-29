@@ -41,22 +41,88 @@ import { createClient } from "@/utils/supabase/client";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 
+// Helper to parse price strings handling both comma and dot as decimal separators
+function parsePrice(value: string): number {
+    // Remove spaces and currency symbols
+    let cleaned = value.trim().replace(/[$€£]/g, '');
+
+    // If contains both comma and dot, assume last one is decimal separator
+    if (cleaned.includes(',') && cleaned.includes('.')) {
+        // Assume US format: 1,234.56
+        cleaned = cleaned.replace(/,/g, '');
+    } else if (cleaned.includes(',')) {
+        // Could be either "1,234" (thousands) or "1,23" (European decimal)
+        // If comma position from end is 3, it's thousands separator
+        const commaPos = cleaned.length - cleaned.lastIndexOf(',') - 1;
+        if (commaPos === 3 && !cleaned.includes('.')) {
+            cleaned = cleaned.replace(/,/g, '');
+        } else {
+            // European decimal format
+            cleaned = cleaned.replace(',', '.');
+        }
+    }
+
+    return parseFloat(cleaned);
+}
+
 const formSchema = z.object({
     direction: z.enum(["long", "short"]),
-    entryPrice: z.string().refine((val) => !isNaN(Number(val)) && Number(val) > 0, {
+    entryPrice: z.string().refine((val) => !isNaN(parsePrice(val)) && parsePrice(val) > 0, {
         message: "Entry price must be a positive number",
     }),
-    stopLoss: z.string().refine((val) => !isNaN(Number(val)) && Number(val) > 0, {
+    stopLoss: z.string().refine((val) => !isNaN(parsePrice(val)) && parsePrice(val) > 0, {
         message: "Stop loss must be a positive number",
     }),
     takeProfits: z.array(
         z.object({
-            price: z.string().refine((val) => !isNaN(Number(val)) && Number(val) > 0, {
+            price: z.string().refine((val) => !isNaN(parsePrice(val)) && parsePrice(val) > 0, {
                 message: "TP price must be a positive number",
             }),
         })
     ).min(1, "At least one Take Profit is required"),
     aiStrategyId: z.string().min(1, "Please select an AI strategy"),
+}).superRefine((data, ctx) => {
+    const entry = parsePrice(data.entryPrice);
+    const sl = parsePrice(data.stopLoss);
+    const tps = data.takeProfits.map(tp => parsePrice(tp.price));
+
+    if (data.direction === "long") {
+        // For LONG: SL must be below entry, TPs must be above entry
+        if (sl >= entry) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: "For LONG trades, Stop Loss must be below Entry Price",
+                path: ["stopLoss"],
+            });
+        }
+        tps.forEach((tp, idx) => {
+            if (tp <= entry) {
+                ctx.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    message: "For LONG trades, Take Profit must be above Entry Price",
+                    path: ["takeProfits", idx, "price"],
+                });
+            }
+        });
+    } else {
+        // For SHORT: SL must be above entry, TPs must be below entry
+        if (sl <= entry) {
+            ctx.addIssue({
+                code: z.ZodIssueCode.custom,
+                message: "For SHORT trades, Stop Loss must be above Entry Price",
+                path: ["stopLoss"],
+            });
+        }
+        tps.forEach((tp, idx) => {
+            if (tp >= entry) {
+                ctx.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    message: "For SHORT trades, Take Profit must be below Entry Price",
+                    path: ["takeProfits", idx, "price"],
+                });
+            }
+        });
+    }
 });
 
 export default function CreateTradePage() {
@@ -143,8 +209,8 @@ export default function CreateTradePage() {
                 .insert({
                     user_id: user.id,
                     direction: values.direction,
-                    entry_price: Number(values.entryPrice),
-                    sl: Number(values.stopLoss),
+                    entry_price: parsePrice(values.entryPrice),
+                    sl: parsePrice(values.stopLoss),
                     status: "pending_entry",
                 })
                 .select()
@@ -158,7 +224,7 @@ export default function CreateTradePage() {
             // 2. Create TPs
             const tps = values.takeProfits.map((tp) => ({
                 trade_id: trade.id,
-                tp_price: Number(tp.price),
+                tp_price: parsePrice(tp.price),
             }));
 
             const { error: tpError } = await supabase.from("trade_tps").insert(tps);
