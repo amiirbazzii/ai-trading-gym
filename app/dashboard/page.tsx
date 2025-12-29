@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import Link from "next/link";
-import { Plus, Activity, TrendingUp, TrendingDown } from "lucide-react";
+import { Plus, Activity, TrendingUp, TrendingDown, Wallet } from "lucide-react";
 import { createClient } from "@/utils/supabase/client";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -20,23 +20,72 @@ import {
 } from "@/components/ui/table";
 import { formatDistanceToNow } from "date-fns";
 
+// ============================================
+// Types
+// ============================================
+
+type TradeStatus =
+    | "pending_entry"
+    | "entered"
+    | "tp_all_hit"
+    | "tp_partial_then_sl"
+    | "sl_hit"
+    | "cancelled";
+
 interface Trade {
     id: string;
     direction: "long" | "short";
     entry_price: number;
     sl: number;
-    status: "pending" | "open" | "closed" | "cancelled";
+    status: TradeStatus;
     created_at: string;
     pnl: number;
     ai_name?: string;
 }
 
 interface StrategyStats {
+    id: string;
     name: string;
+    balance: number;
     pnl: number;
     trades: number;
     wins: number;
 }
+
+// ============================================
+// Status Badge Configurations
+// ============================================
+
+const STATUS_CONFIG: Record<TradeStatus, { label: string; className: string }> = {
+    pending_entry: {
+        label: "Pending Entry",
+        className: "bg-yellow-100 text-yellow-800 border-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-400"
+    },
+    entered: {
+        label: "Entered",
+        className: "bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400"
+    },
+    tp_all_hit: {
+        label: "All TPs Hit",
+        className: "bg-green-100 text-green-800 border-green-200 dark:bg-green-900/30 dark:text-green-400"
+    },
+    tp_partial_then_sl: {
+        label: "Partial TP + SL",
+        className: "bg-orange-100 text-orange-800 border-orange-200 dark:bg-orange-900/30 dark:text-orange-400"
+    },
+    sl_hit: {
+        label: "SL Hit",
+        className: "bg-red-100 text-red-800 border-red-200 dark:bg-red-900/30 dark:text-red-400"
+    },
+    cancelled: {
+        label: "Cancelled",
+        className: "bg-gray-100 text-gray-800 border-gray-200 dark:bg-gray-900/30 dark:text-gray-400"
+    }
+};
+
+// ============================================
+// Component
+// ============================================
 
 export default function DashboardPage() {
     const [trades, setTrades] = useState<Trade[]>([]);
@@ -79,6 +128,7 @@ export default function DashboardPage() {
                   *,
                   trade_ai_attribution (
                     ai_strategies (
+                      id,
                       name
                     )
                   )
@@ -93,7 +143,7 @@ export default function DashboardPage() {
                 direction: t.direction,
                 entry_price: t.entry_price,
                 sl: t.sl,
-                status: t.status,
+                status: t.status as TradeStatus,
                 created_at: t.created_at,
                 pnl: t.pnl || 0,
                 ai_name: t.trade_ai_attribution?.[0]?.ai_strategies?.name || "None",
@@ -101,28 +151,58 @@ export default function DashboardPage() {
 
             setTrades(formattedTrades);
 
-            // 2. Mock Stats Calculation based on real PnL
-            const statsMap = new Map<string, StrategyStats>();
+            // 2. Fetch AI Strategies with balances
+            const { data: strategyData, error: strategyError } = await supabase
+                .from("ai_strategies")
+                .select("id, name, balance");
 
-            formattedTrades.forEach((t) => {
-                const name = t.ai_name || "Unknown";
-                if (!statsMap.has(name)) {
-                    statsMap.set(name, { name, pnl: 0, trades: 0, wins: 0 });
-                }
-                const stat = statsMap.get(name)!;
-                stat.trades += 1;
-                stat.pnl += t.pnl;
-                if (t.pnl > 0) stat.wins += 1;
+            if (strategyError) throw strategyError;
+
+            // Calculate stats per strategy
+            const strategyStatsMap = new Map<string, StrategyStats>();
+
+            // Initialize from strategy data
+            (strategyData || []).forEach((s: any) => {
+                strategyStatsMap.set(s.id, {
+                    id: s.id,
+                    name: s.name,
+                    balance: s.balance,
+                    pnl: 0,
+                    trades: 0,
+                    wins: 0
+                });
             });
 
-            setStrategies(Array.from(statsMap.values()));
+            // Aggregate trade stats
+            formattedTrades.forEach((t) => {
+                // Find strategy ID from trade data
+                const tradeRaw = (tradeData || []).find((td: any) => td.id === t.id);
+                const strategyId = tradeRaw?.trade_ai_attribution?.[0]?.ai_strategies?.id;
+
+                if (strategyId && strategyStatsMap.has(strategyId)) {
+                    const stat = strategyStatsMap.get(strategyId)!;
+                    stat.trades += 1;
+                    stat.pnl += t.pnl;
+                    if (t.pnl > 0) stat.wins += 1;
+                }
+            });
+
+            setStrategies(Array.from(strategyStatsMap.values()));
 
         } catch (error: any) {
             console.error("Error fetching dashboard:", error);
-            // toast.error("Failed to load dashboard data");
         } finally {
             setLoading(false);
         }
+    };
+
+    const getStatusBadge = (status: TradeStatus) => {
+        const config = STATUS_CONFIG[status] || STATUS_CONFIG.cancelled;
+        return (
+            <Badge variant="outline" className={config.className}>
+                {config.label}
+            </Badge>
+        );
     };
 
     return (
@@ -145,21 +225,45 @@ export default function DashboardPage() {
                 <ETHPriceChart />
             </div>
 
+            {/* Strategy Cards with Balance */}
             <div className="grid gap-6 md:grid-cols-3">
                 {strategies.length > 0 ? (
                     strategies.map((strategy) => (
-                        <Card key={strategy.name} className="bg-card hover:bg-accent/5 transition-colors">
+                        <Card key={strategy.id} className="bg-card hover:bg-accent/5 transition-colors">
                             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                                 <CardTitle className="text-sm font-medium">
                                     {strategy.name}
                                 </CardTitle>
                                 <Activity className="h-4 w-4 text-muted-foreground" />
                             </CardHeader>
-                            <CardContent>
-                                <div className="text-2xl font-bold">{strategy.trades}</div>
-                                <p className="text-xs text-muted-foreground mt-1">
-                                    Total Executed Trades
-                                </p>
+                            <CardContent className="space-y-3">
+                                {/* Balance Display */}
+                                <div className="flex items-center gap-2">
+                                    <Wallet className="h-4 w-4 text-muted-foreground" />
+                                    <span className="text-2xl font-bold">
+                                        ${strategy.balance.toLocaleString(undefined, {
+                                            minimumFractionDigits: 2,
+                                            maximumFractionDigits: 2
+                                        })}
+                                    </span>
+                                </div>
+                                <div className="flex justify-between text-sm">
+                                    <span className="text-muted-foreground">
+                                        {strategy.trades} trades
+                                    </span>
+                                    <span className={cn(
+                                        "font-medium",
+                                        strategy.pnl > 0 ? "text-green-600" :
+                                            strategy.pnl < 0 ? "text-red-600" :
+                                                "text-muted-foreground"
+                                    )}>
+                                        {strategy.pnl > 0 ? "+" : ""}
+                                        ${strategy.pnl.toLocaleString(undefined, {
+                                            minimumFractionDigits: 2,
+                                            maximumFractionDigits: 2
+                                        })} PnL
+                                    </span>
+                                </div>
                             </CardContent>
                         </Card>
                     ))
@@ -170,6 +274,7 @@ export default function DashboardPage() {
                 )}
             </div>
 
+            {/* Recent Trades Table */}
             <Card>
                 <CardHeader>
                     <CardTitle>Recent Trades</CardTitle>
@@ -184,7 +289,7 @@ export default function DashboardPage() {
                                 <TableHead>Direction</TableHead>
                                 <TableHead>Entry Price</TableHead>
                                 <TableHead>Status</TableHead>
-                                <TableHead className="text-right">PnL (Est)</TableHead>
+                                <TableHead className="text-right">PnL</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -215,17 +320,7 @@ export default function DashboardPage() {
                                         </TableCell>
                                         <TableCell>${trade.entry_price.toLocaleString()}</TableCell>
                                         <TableCell>
-                                            <Badge
-                                                variant="outline"
-                                                className={cn(
-                                                    "capitalize",
-                                                    trade.status === 'pending' && "bg-yellow-100 text-yellow-800 border-yellow-200",
-                                                    trade.status === 'open' && "bg-blue-100 text-blue-800 border-blue-200",
-                                                    trade.status === 'closed' && "bg-gray-100 text-gray-800 border-gray-200"
-                                                )}
-                                            >
-                                                {trade.status}
-                                            </Badge>
+                                            {getStatusBadge(trade.status)}
                                         </TableCell>
                                         <TableCell className={cn(
                                             "text-right font-medium",

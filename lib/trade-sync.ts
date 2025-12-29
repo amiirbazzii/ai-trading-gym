@@ -1,10 +1,61 @@
+/**
+ * Trade Sync Logic
+ * ================
+ * This module handles automatic trade state evaluation and PnL calculation.
+ * 
+ * Trade States:
+ * - pending_entry: Waiting for price to reach entry_price
+ * - entered: Position is active, monitoring TPs and SL
+ * - tp_all_hit: All TPs hit, trade closed with profit
+ * - tp_partial_then_sl: Some TPs hit then SL hit
+ * - sl_hit: SL hit without any TP, closed with loss
+ * 
+ * Capital Model:
+ * - Each strategy starts with 1000 USD virtual balance
+ * - Each trade uses fixed 10 USD position size
+ * - PnL is calculated as percentage gain/loss on position
+ */
+
 import { createClient } from '@/utils/supabase/server';
 
 const BINANCE_API = 'https://api.binance.com/api/v3/ticker/price?symbol=ETHUSDT';
 
+// ============================================
+// Types
+// ============================================
+
+interface Trade {
+    id: string;
+    user_id: string;
+    direction: 'long' | 'short';
+    entry_price: number;
+    sl: number;
+    status: string;
+    pnl: number;
+    position_size: number;
+    remaining_position: number;
+    trade_tps: TakeProfit[];
+}
+
+interface TakeProfit {
+    id: string;
+    trade_id: string;
+    tp_price: number;
+    is_hit: boolean;
+    hit_at: string | null;
+    pnl_portion: number;
+}
+
+// ============================================
+// Price Fetching
+// ============================================
+
+/**
+ * Fetch current ETH price from Binance API
+ */
 export async function getEthPrice(): Promise<number> {
     try {
-        const response = await fetch(BINANCE_API);
+        const response = await fetch(BINANCE_API, { cache: 'no-store' });
         const data = await response.json();
         return parseFloat(data.price);
     } catch (error) {
@@ -13,147 +64,342 @@ export async function getEthPrice(): Promise<number> {
     }
 }
 
+// ============================================
+// PnL Calculation Helpers
+// ============================================
+
+/**
+ * Calculate profit for a take-profit hit
+ * Formula: ((tp_price - entry_price) / entry_price) × capital_per_tp
+ * For short: ((entry_price - tp_price) / entry_price) × capital_per_tp
+ */
+function calculateTpProfit(
+    direction: 'long' | 'short',
+    entryPrice: number,
+    tpPrice: number,
+    capitalPerTp: number
+): number {
+    if (direction === 'long') {
+        return ((tpPrice - entryPrice) / entryPrice) * capitalPerTp;
+    } else {
+        return ((entryPrice - tpPrice) / entryPrice) * capitalPerTp;
+    }
+}
+
+/**
+ * Calculate loss for a stop-loss hit
+ * Formula: ((sl_price - entry_price) / entry_price) × remaining_capital
+ * For short: ((entry_price - sl_price) / entry_price) × remaining_capital
+ */
+function calculateSlLoss(
+    direction: 'long' | 'short',
+    entryPrice: number,
+    slPrice: number,
+    remainingCapital: number
+): number {
+    if (direction === 'long') {
+        // For long, SL is below entry, so this will be negative
+        return ((slPrice - entryPrice) / entryPrice) * remainingCapital;
+    } else {
+        // For short, SL is above entry, so this will be negative
+        return ((entryPrice - slPrice) / entryPrice) * remainingCapital;
+    }
+}
+
+/**
+ * Check if price has reached a target
+ */
+function isPriceTriggered(
+    direction: 'long' | 'short',
+    currentPrice: number,
+    targetPrice: number,
+    isStopLoss: boolean
+): boolean {
+    if (direction === 'long') {
+        // Long: Entry/TP triggered when price >= target, SL triggered when price <= target
+        return isStopLoss ? currentPrice <= targetPrice : currentPrice >= targetPrice;
+    } else {
+        // Short: Entry/TP triggered when price <= target, SL triggered when price >= target
+        return isStopLoss ? currentPrice >= targetPrice : currentPrice <= targetPrice;
+    }
+}
+
+// ============================================
+// Main Sync Function
+// ============================================
+
 export async function syncTrades() {
     const currentPrice = await getEthPrice();
     const supabase = await createClient();
 
-    // 1. Handle Pending Trades -> Open
-    const { data: pendingTrades, error: pendingError } = await supabase
+    console.log(`[Trade Sync] Starting sync. ETH Price: $${currentPrice.toFixed(2)}`);
+
+    // ========================================
+    // Phase 1: Handle pending_entry -> entered
+    // ========================================
+    await handlePendingEntries(supabase, currentPrice);
+
+    // ========================================
+    // Phase 2: Handle entered trades (TPs and SL)
+    // ========================================
+    await handleEnteredTrades(supabase, currentPrice);
+
+    console.log('[Trade Sync] Sync completed');
+}
+
+/**
+ * Process trades waiting for entry price to be reached
+ */
+async function handlePendingEntries(supabase: any, currentPrice: number) {
+    const { data: pendingTrades, error } = await supabase
         .from('trades')
         .select('*')
-        .eq('status', 'pending');
+        .eq('status', 'pending_entry');
 
-    if (pendingError) console.error('Error fetching pending trades:', pendingError);
+    if (error) {
+        console.error('[Trade Sync] Error fetching pending trades:', error);
+        return;
+    }
 
     for (const trade of pendingTrades || []) {
-        // For Long: price >= entry
-        // For Short: price <= entry
-        const triggered = trade.direction === 'long'
-            ? currentPrice >= trade.entry_price
-            : currentPrice <= trade.entry_price;
+        const triggered = isPriceTriggered(
+            trade.direction,
+            currentPrice,
+            trade.entry_price,
+            false // not stop loss
+        );
 
         if (triggered) {
-            await supabase
+            const { error: updateError } = await supabase
                 .from('trades')
-                .update({ status: 'open' })
+                .update({ status: 'entered' })
                 .eq('id', trade.id);
-            console.log(`Trade ${trade.id} opened at ${currentPrice}`);
+
+            if (updateError) {
+                console.error(`[Trade Sync] Error updating trade ${trade.id}:`, updateError);
+            } else {
+                console.log(`[Trade Sync] Trade ${trade.id} entered at $${currentPrice.toFixed(2)}`);
+            }
         }
     }
+}
 
-    // 2. Handle Open Trades -> Check SL and TPs
-    const { data: openTrades, error: openError } = await supabase
+/**
+ * Process active trades - check TPs and SL
+ */
+async function handleEnteredTrades(supabase: any, currentPrice: number) {
+    const { data: enteredTrades, error } = await supabase
         .from('trades')
         .select('*, trade_tps(*)')
-        .eq('status', 'open');
+        .eq('status', 'entered');
 
-    if (openError) console.error('Error fetching open trades:', openError);
+    if (error) {
+        console.error('[Trade Sync] Error fetching entered trades:', error);
+        return;
+    }
 
-    for (const trade of openTrades || []) {
-        let closed = false;
-        let finalPnl = trade.pnl;
-        let exitPrice = null;
+    for (const trade of enteredTrades || []) {
+        await processTrade(supabase, trade as Trade, currentPrice);
+    }
+}
 
-        // Check SL
-        const slHit = trade.direction === 'long'
-            ? currentPrice <= trade.sl
-            : currentPrice >= trade.sl;
+/**
+ * Process a single entered trade
+ */
+async function processTrade(supabase: any, trade: Trade, currentPrice: number) {
+    const tps = trade.trade_tps || [];
+    const totalTps = tps.length;
+    const unhitTps = tps.filter(tp => !tp.is_hit);
+    const hitTps = tps.filter(tp => tp.is_hit);
 
-        if (slHit) {
-            // Calculate loss
-            const loss = Math.abs(currentPrice - trade.entry_price);
-            finalPnl -= loss; // This is a simplistic PnL calculation
+    // Capital allocated per TP = position_size / total_tps
+    const capitalPerTp = totalTps > 0 ? trade.position_size / totalTps : 0;
 
+    // ========================================
+    // Check Stop Loss First
+    // ========================================
+    const slTriggered = isPriceTriggered(
+        trade.direction,
+        currentPrice,
+        trade.sl,
+        true // is stop loss
+    );
+
+    if (slTriggered) {
+        await handleStopLoss(supabase, trade, currentPrice, hitTps.length > 0);
+        return;
+    }
+
+    // ========================================
+    // Check Take Profits
+    // ========================================
+    let tpsHitThisSync = 0;
+    let totalNewPnl = 0;
+    let newRemainingPosition = trade.remaining_position;
+
+    for (const tp of unhitTps) {
+        const tpTriggered = isPriceTriggered(
+            trade.direction,
+            currentPrice,
+            tp.tp_price,
+            false
+        );
+
+        if (tpTriggered) {
+            // Calculate PnL for this TP
+            const tpProfit = calculateTpProfit(
+                trade.direction,
+                trade.entry_price,
+                tp.tp_price,
+                capitalPerTp
+            );
+
+            // Update TP record
+            const { error: tpError } = await supabase
+                .from('trade_tps')
+                .update({
+                    is_hit: true,
+                    hit_at: new Date().toISOString(),
+                    pnl_portion: tpProfit
+                })
+                .eq('id', tp.id);
+
+            if (tpError) {
+                console.error(`[Trade Sync] Error updating TP ${tp.id}:`, tpError);
+                continue;
+            }
+
+            tpsHitThisSync++;
+            totalNewPnl += tpProfit;
+            newRemainingPosition -= capitalPerTp;
+
+            console.log(
+                `[Trade Sync] Trade ${trade.id} hit TP at $${tp.tp_price.toFixed(2)}. ` +
+                `Profit: $${tpProfit.toFixed(4)}`
+            );
+        }
+    }
+
+    // ========================================
+    // Update Trade State
+    // ========================================
+    if (tpsHitThisSync > 0) {
+        const newTotalPnl = trade.pnl + totalNewPnl;
+        const totalHitTps = hitTps.length + tpsHitThisSync;
+
+        // Check if all TPs are now hit
+        if (totalHitTps === totalTps) {
+            // All TPs hit - close trade
+            await closeTrade(
+                supabase,
+                trade,
+                'tp_all_hit',
+                newTotalPnl,
+                currentPrice
+            );
+        } else {
+            // Some TPs hit but not all - update trade
             await supabase
                 .from('trades')
                 .update({
-                    status: 'closed',
-                    is_sl_hit: true,
-                    pnl: finalPnl,
-                    exit_price: currentPrice
+                    pnl: newTotalPnl,
+                    remaining_position: Math.max(0, newRemainingPosition)
                 })
-                .eq('id', trade.id);
-
-            // Record in AI results
-            const { data: attribution } = await supabase
-                .from('trade_ai_attribution')
-                .select('id')
-                .eq('trade_id', trade.id)
-                .single();
-
-            if (attribution) {
-                await supabase.from('ai_results').insert({
-                    trade_ai_attribution_id: attribution.id,
-                    pnl: finalPnl
-                });
-            }
-
-            console.log(`Trade ${trade.id} hit SL at ${currentPrice}. Final PnL: ${finalPnl}`);
-            continue; // Move to next trade
-        }
-
-        // Check TPs
-        const tps = trade.trade_tps || [];
-        const unhitTps = tps.filter((tp: any) => !tp.is_hit);
-
-        for (const tp of unhitTps) {
-            const tpTriggered = trade.direction === 'long'
-                ? currentPrice >= tp.tp_price
-                : currentPrice <= tp.tp_price;
-
-            if (tpTriggered) {
-                // Mark TP as hit
-                await supabase
-                    .from('trade_tps')
-                    .update({ is_hit: true })
-                    .eq('id', tp.id);
-
-                // Record profit for this TP
-                const profit = Math.abs(tp.tp_price - trade.entry_price);
-                finalPnl += profit;
-
-                console.log(`Trade ${trade.id} hit TP ${tp.tp_price}. Current PnL: ${finalPnl}`);
-            }
-        }
-
-        // Check if all TPs hit
-        const { count: unhitCount } = await supabase
-            .from('trade_tps')
-            .select('id', { count: 'exact', head: true })
-            .eq('trade_id', trade.id)
-            .eq('is_hit', false);
-
-        if (unhitCount === 0 && tps.length > 0) {
-            await supabase
-                .from('trades')
-                .update({
-                    status: 'closed',
-                    pnl: finalPnl,
-                    exit_price: currentPrice
-                })
-                .eq('id', trade.id);
-
-            // Record in AI results
-            const { data: attribution } = await supabase
-                .from('trade_ai_attribution')
-                .select('id')
-                .eq('trade_id', trade.id)
-                .single();
-
-            if (attribution) {
-                await supabase.from('ai_results').insert({
-                    trade_ai_attribution_id: attribution.id,
-                    pnl: finalPnl
-                });
-            }
-
-            console.log(`Trade ${trade.id} completed all TPs. Final PnL: ${finalPnl}`);
-        } else if (finalPnl !== trade.pnl) {
-            // Update incidental PnL from TPs
-            await supabase
-                .from('trades')
-                .update({ pnl: finalPnl })
                 .eq('id', trade.id);
         }
     }
+}
+
+/**
+ * Handle stop-loss trigger
+ */
+async function handleStopLoss(
+    supabase: any,
+    trade: Trade,
+    currentPrice: number,
+    hadPartialTps: boolean
+) {
+    // Calculate SL loss on remaining position
+    const slLoss = calculateSlLoss(
+        trade.direction,
+        trade.entry_price,
+        trade.sl,
+        trade.remaining_position
+    );
+
+    const finalPnl = trade.pnl + slLoss;
+    const finalStatus = hadPartialTps ? 'tp_partial_then_sl' : 'sl_hit';
+
+    console.log(
+        `[Trade Sync] Trade ${trade.id} hit SL at $${trade.sl.toFixed(2)}. ` +
+        `Loss: $${slLoss.toFixed(4)}. Final PnL: $${finalPnl.toFixed(4)}. ` +
+        `Status: ${finalStatus}`
+    );
+
+    await closeTrade(supabase, trade, finalStatus, finalPnl, currentPrice);
+}
+
+/**
+ * Close a trade and update strategy balance
+ */
+async function closeTrade(
+    supabase: any,
+    trade: Trade,
+    status: 'tp_all_hit' | 'tp_partial_then_sl' | 'sl_hit',
+    finalPnl: number,
+    exitPrice: number
+) {
+    // Update trade status
+    const { error: tradeError } = await supabase
+        .from('trades')
+        .update({
+            status,
+            pnl: finalPnl,
+            exit_price: exitPrice,
+            is_sl_hit: status !== 'tp_all_hit',
+            remaining_position: 0
+        })
+        .eq('id', trade.id);
+
+    if (tradeError) {
+        console.error(`[Trade Sync] Error closing trade ${trade.id}:`, tradeError);
+        return;
+    }
+
+    // Get AI strategy attribution
+    const { data: attribution } = await supabase
+        .from('trade_ai_attribution')
+        .select('id, ai_strategy_id')
+        .eq('trade_id', trade.id)
+        .single();
+
+    if (attribution) {
+        // Record in AI results
+        await supabase.from('ai_results').insert({
+            trade_ai_attribution_id: attribution.id,
+            pnl: finalPnl
+        });
+
+        // Update strategy balance
+        const { data: strategy } = await supabase
+            .from('ai_strategies')
+            .select('balance')
+            .eq('id', attribution.ai_strategy_id)
+            .single();
+
+        if (strategy) {
+            const newBalance = strategy.balance + finalPnl;
+            await supabase
+                .from('ai_strategies')
+                .update({ balance: newBalance })
+                .eq('id', attribution.ai_strategy_id);
+
+            console.log(
+                `[Trade Sync] Updated strategy balance: ` +
+                `${strategy.balance.toFixed(2)} -> ${newBalance.toFixed(2)}`
+            );
+        }
+    }
+
+    console.log(`[Trade Sync] Trade ${trade.id} closed. Status: ${status}, PnL: $${finalPnl.toFixed(4)}`);
 }
