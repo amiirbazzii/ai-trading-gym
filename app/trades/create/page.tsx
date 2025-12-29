@@ -145,7 +145,7 @@ export default function CreateTradePage() {
                     direction: values.direction,
                     entry_price: Number(values.entryPrice),
                     sl: Number(values.stopLoss),
-                    status: "open",
+                    status: "pending",
                 })
                 .select()
                 .single();

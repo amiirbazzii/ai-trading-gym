@@ -25,9 +25,9 @@ interface Trade {
     direction: "long" | "short";
     entry_price: number;
     sl: number;
-    status: string;
+    status: "pending" | "open" | "closed" | "cancelled";
     created_at: string;
-    pnl?: string;
+    pnl: number;
     ai_name?: string;
 }
 
@@ -47,6 +47,20 @@ export default function DashboardPage() {
 
     useEffect(() => {
         fetchDashboardData();
+
+        // Automatic sync every 30 seconds
+        const syncInterval = setInterval(async () => {
+            try {
+                const res = await fetch('/api/trades/sync');
+                if (res.ok) {
+                    fetchDashboardData();
+                }
+            } catch (error) {
+                console.error("Failed to sync trades:", error);
+            }
+        }, 30000);
+
+        return () => clearInterval(syncInterval);
     }, []);
 
     const fetchDashboardData = async () => {
@@ -81,13 +95,13 @@ export default function DashboardPage() {
                 sl: t.sl,
                 status: t.status,
                 created_at: t.created_at,
-                pnl: "0.00%",
+                pnl: t.pnl || 0,
                 ai_name: t.trade_ai_attribution?.[0]?.ai_strategies?.name || "None",
             }));
 
             setTrades(formattedTrades);
 
-            // 2. Mock Stats Calculation
+            // 2. Mock Stats Calculation based on real PnL
             const statsMap = new Map<string, StrategyStats>();
 
             formattedTrades.forEach((t) => {
@@ -97,13 +111,15 @@ export default function DashboardPage() {
                 }
                 const stat = statsMap.get(name)!;
                 stat.trades += 1;
+                stat.pnl += t.pnl;
+                if (t.pnl > 0) stat.wins += 1;
             });
 
             setStrategies(Array.from(statsMap.values()));
 
         } catch (error: any) {
             console.error("Error fetching dashboard:", error);
-            toast.error("Failed to load dashboard data");
+            // toast.error("Failed to load dashboard data");
         } finally {
             setLoading(false);
         }
@@ -199,12 +215,23 @@ export default function DashboardPage() {
                                         </TableCell>
                                         <TableCell>${trade.entry_price.toLocaleString()}</TableCell>
                                         <TableCell>
-                                            <Badge variant="outline" className="capitalize">
+                                            <Badge
+                                                variant="outline"
+                                                className={cn(
+                                                    "capitalize",
+                                                    trade.status === 'pending' && "bg-yellow-100 text-yellow-800 border-yellow-200",
+                                                    trade.status === 'open' && "bg-blue-100 text-blue-800 border-blue-200",
+                                                    trade.status === 'closed' && "bg-gray-100 text-gray-800 border-gray-200"
+                                                )}
+                                            >
                                                 {trade.status}
                                             </Badge>
                                         </TableCell>
-                                        <TableCell className="text-right font-medium text-muted-foreground">
-                                            {trade.pnl}
+                                        <TableCell className={cn(
+                                            "text-right font-medium",
+                                            trade.pnl > 0 ? "text-green-600" : trade.pnl < 0 ? "text-red-600" : "text-muted-foreground"
+                                        )}>
+                                            {trade.pnl > 0 ? "+" : ""}${trade.pnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                         </TableCell>
                                     </TableRow>
                                 ))

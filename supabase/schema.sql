@@ -9,7 +9,10 @@ create table public.trades (
   entry_price numeric not null,
   sl numeric not null,
   created_at timestamptz default now() not null,
-  status text check (status in ('open', 'closed', 'cancelled')) default 'open' not null
+  status text check (status in ('pending', 'open', 'closed', 'cancelled')) default 'pending' not null,
+  pnl numeric default 0 not null,
+  is_sl_hit boolean default false not null,
+  exit_price numeric
 );
 
 -- Table: trade_tps
