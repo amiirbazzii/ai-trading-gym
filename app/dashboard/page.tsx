@@ -455,10 +455,10 @@ export default function DashboardPage() {
                                             </DropdownMenuTrigger>
                                             <DropdownMenuContent align="end">
                                                 <DropdownMenuItem
-                                                    className="text-destructive focus:text-destructive focus:bg-destructive/10 cursor-pointer"
+                                                    className="text-red-500 focus:text-red-500 focus:bg-red-50 dark:focus:bg-red-950/20 cursor-pointer"
                                                     onClick={() => handleDeleteTrade(trade.id)}
                                                 >
-                                                    <Trash2 className="mr-2 h-4 w-4" />
+                                                    <Trash2 className="mr-2 h-4 w-4 text-red-500" />
                                                     Delete Trade
                                                 </DropdownMenuItem>
                                             </DropdownMenuContent>

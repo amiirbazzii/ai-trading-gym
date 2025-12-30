@@ -116,6 +116,9 @@ create policy "Users can insert own trades" on public.trades
 create policy "Users can update own trades" on public.trades
   for update using (auth.uid() = user_id);
 
+create policy "Users can delete own trades" on public.trades
+  for delete using (auth.uid() = user_id);
+
 -- Policies for trade_tps
 create policy "Users can view own trade tps" on public.trade_tps
   for select using (exists (select 1 from public.trades where trades.id = trade_tps.trade_id and trades.user_id = auth.uid()));
