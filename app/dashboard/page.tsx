@@ -25,6 +25,13 @@ import {
     TooltipProvider,
     TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { MoreHorizontal, Trash2 } from "lucide-react";
 
 // ============================================
 // Types
@@ -215,6 +222,26 @@ export default function DashboardPage() {
         }
     };
 
+    const handleDeleteTrade = async (tradeId: string) => {
+        try {
+            const { error } = await supabase
+                .from("trades")
+                .delete()
+                .eq("id", tradeId);
+
+            if (error) throw error;
+
+            toast.success("Trade deleted successfully");
+            setTrades((prev) => prev.filter((t) => t.id !== tradeId));
+
+            // Refresh strategy stats after deletion
+            fetchDashboardData();
+        } catch (error: any) {
+            console.error("Error deleting trade:", error);
+            toast.error("Failed to delete trade");
+        }
+    };
+
     const getStatusBadge = (status: TradeStatus) => {
         const config = STATUS_CONFIG[status] || STATUS_CONFIG.cancelled;
         return (
@@ -365,62 +392,81 @@ export default function DashboardPage() {
                                     <TableHead>Take Profits</TableHead>
                                     <TableHead>Status</TableHead>
                                     <TableHead className="text-right">PnL</TableHead>
+                                    <TableHead className="w-[50px]"></TableHead>
                                 </TableRow>
                             </TableHeader>
                             <TableBody>
                                 {loading ? (
                                     <TableRow>
-                                        <TableCell colSpan={8} className="text-center py-8">Loading trades...</TableCell>
+                                        <TableCell colSpan={9} className="text-center py-8">Loading trades...</TableCell>
                                     </TableRow>
                                 ) : trades.length > 0 ? (
                                     trades.map((trade) => (
-                                        <TableRow key={trade.id}>
-                                            <TableCell className="text-muted-foreground text-sm whitespace-nowrap">
-                                                {formatDistanceToNow(new Date(trade.created_at), { addSuffix: true })}
-                                            </TableCell>
-                                            <TableCell className="font-medium">{trade.ai_name}</TableCell>
-                                            <TableCell>
-                                                <Badge
-                                                    variant="outline"
-                                                    className={cn(
-                                                        "border-none",
-                                                        trade.direction === 'long'
-                                                            ? 'bg-green-100 text-green-800 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400'
-                                                            : 'bg-red-100 text-red-800 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400'
-                                                    )}
+                                        <DropdownMenu key={trade.id}>
+                                            <DropdownMenuTrigger asChild>
+                                                <TableRow className="cursor-pointer hover:bg-muted/50 transition-colors">
+                                                    <TableCell className="text-muted-foreground text-sm whitespace-nowrap">
+                                                        {formatDistanceToNow(new Date(trade.created_at), { addSuffix: true })}
+                                                    </TableCell>
+                                                    <TableCell className="font-medium">{trade.ai_name}</TableCell>
+                                                    <TableCell>
+                                                        <Badge
+                                                            variant="outline"
+                                                            className={cn(
+                                                                "border-none",
+                                                                trade.direction === 'long'
+                                                                    ? 'bg-green-100 text-green-800 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400'
+                                                                    : 'bg-red-100 text-red-800 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400'
+                                                            )}
+                                                        >
+                                                            {trade.direction === "long" ? <TrendingUp className="mr-1 h-3 w-3" /> : <TrendingDown className="mr-1 h-3 w-3" />}
+                                                            {trade.direction.toUpperCase()}
+                                                        </Badge>
+                                                    </TableCell>
+                                                    <TableCell className="font-medium">
+                                                        ${trade.entry_price.toLocaleString()}
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <div className="flex items-center gap-1.5">
+                                                            <ShieldX className="h-3.5 w-3.5 text-red-500" />
+                                                            <span className="text-red-600 dark:text-red-400 font-medium">
+                                                                ${trade.sl.toLocaleString()}
+                                                            </span>
+                                                        </div>
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        {formatTPs(trade.tps, trade.direction)}
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        {getStatusBadge(trade.status)}
+                                                    </TableCell>
+                                                    <TableCell className={cn(
+                                                        "text-right font-medium whitespace-nowrap",
+                                                        trade.pnl > 0 ? "text-green-600" : trade.pnl < 0 ? "text-red-600" : "text-muted-foreground"
+                                                    )}>
+                                                        {trade.pnl > 0 ? "+" : ""}${trade.pnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <Button variant="ghost" size="icon" className="h-8 w-8">
+                                                            <MoreHorizontal className="h-4 w-4" />
+                                                        </Button>
+                                                    </TableCell>
+                                                </TableRow>
+                                            </DropdownMenuTrigger>
+                                            <DropdownMenuContent align="end">
+                                                <DropdownMenuItem
+                                                    className="text-destructive focus:text-destructive focus:bg-destructive/10 cursor-pointer"
+                                                    onClick={() => handleDeleteTrade(trade.id)}
                                                 >
-                                                    {trade.direction === "long" ? <TrendingUp className="mr-1 h-3 w-3" /> : <TrendingDown className="mr-1 h-3 w-3" />}
-                                                    {trade.direction.toUpperCase()}
-                                                </Badge>
-                                            </TableCell>
-                                            <TableCell className="font-medium">
-                                                ${trade.entry_price.toLocaleString()}
-                                            </TableCell>
-                                            <TableCell>
-                                                <div className="flex items-center gap-1.5">
-                                                    <ShieldX className="h-3.5 w-3.5 text-red-500" />
-                                                    <span className="text-red-600 dark:text-red-400 font-medium">
-                                                        ${trade.sl.toLocaleString()}
-                                                    </span>
-                                                </div>
-                                            </TableCell>
-                                            <TableCell>
-                                                {formatTPs(trade.tps, trade.direction)}
-                                            </TableCell>
-                                            <TableCell>
-                                                {getStatusBadge(trade.status)}
-                                            </TableCell>
-                                            <TableCell className={cn(
-                                                "text-right font-medium whitespace-nowrap",
-                                                trade.pnl > 0 ? "text-green-600" : trade.pnl < 0 ? "text-red-600" : "text-muted-foreground"
-                                            )}>
-                                                {trade.pnl > 0 ? "+" : ""}${trade.pnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                            </TableCell>
-                                        </TableRow>
+                                                    <Trash2 className="mr-2 h-4 w-4" />
+                                                    Delete Trade
+                                                </DropdownMenuItem>
+                                            </DropdownMenuContent>
+                                        </DropdownMenu>
                                     ))
                                 ) : (
                                     <TableRow>
-                                        <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                                        <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
                                             No recent trades found.
                                         </TableCell>
                                     </TableRow>
