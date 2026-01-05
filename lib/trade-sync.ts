@@ -17,6 +17,7 @@
  */
 
 import { createClient } from '@/utils/supabase/server';
+import { createAdminClient } from '@/utils/supabase/admin';
 import { getEthPrice } from './price';
 
 interface Trade {
@@ -107,7 +108,23 @@ function isPriceTriggered(
 
 export async function syncTrades() {
     const currentPrice = await getEthPrice();
-    const supabase = await createClient();
+    const adminClient = createAdminClient();
+
+    // Use admin client if available (bypasses RLS), otherwise try session client
+    const supabase = adminClient || await createClient();
+
+    if (!adminClient) {
+        console.warn('[Trade Sync] Admin client not available (missing SUPABASE_SERVICE_ROLE_KEY). Using session client.');
+        // Verify session
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+            console.error('[Trade Sync] No authenticated user found for session client. Sync may fail due to RLS.');
+        } else {
+            console.log(`[Trade Sync] Running as user: ${user.id}`);
+        }
+    } else {
+        console.log('[Trade Sync] Running with Admin privileges (RLS bypassed).');
+    }
 
     console.log(`[Trade Sync] Starting sync. ETH Price: $${currentPrice.toFixed(2)}`);
 
@@ -219,14 +236,17 @@ async function processTrade(supabase: any, trade: Trade, currentPrice: number) {
     let newRemainingPosition = remainingPosition;
 
     for (const tp of unhitTps) {
+        const tpPrice = Number(tp.tp_price); // Ensure number
         const tpTriggered = isPriceTriggered(
             trade.direction,
             currentPrice,
-            tp.tp_price,
-            false
+            tpPrice,
+            false // not stop loss
         );
 
         if (tpTriggered) {
+            console.log(`[Trade Sync] TP Hit Triggered: Trade ${trade.id}, TP Price: ${tp.tp_price}, Current: ${currentPrice}`);
+
             // Calculate PnL for this TP
             const tpProfit = calculateTpProfit(
                 trade.direction,
@@ -249,6 +269,8 @@ async function processTrade(supabase: any, trade: Trade, currentPrice: number) {
                 console.error(`[Trade Sync] Error updating TP ${tp.id}:`, tpError);
                 continue;
             }
+
+            console.log(`[Trade Sync] Successfully marked TP ${tp.id} as hit in database`);
 
             tpsHitThisSync++;
             totalNewPnl += tpProfit;

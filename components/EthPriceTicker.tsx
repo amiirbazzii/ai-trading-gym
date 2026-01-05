@@ -28,7 +28,7 @@ export function EthPriceTicker() {
     }, []);
 
     return (
-        <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-primary/5 border border-primary/10 transition-all hover:bg-primary/10 group">
+        <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 transition-all hover:bg-zinc-200 dark:hover:bg-zinc-700 group">
             <div className="relative flex h-2 w-2">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>

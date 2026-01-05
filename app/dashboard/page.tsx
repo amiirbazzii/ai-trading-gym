@@ -49,6 +49,8 @@ interface TakeProfit {
     id: string;
     tp_price: number;
     is_hit: boolean;
+    hit_at?: string;
+    pnl_portion: number;
 }
 
 interface Trade {
@@ -120,14 +122,15 @@ export default function DashboardPage() {
         // Automatic sync every 30 seconds
         const syncInterval = setInterval(async () => {
             try {
-                const res = await fetch('/api/trades/sync');
+                // Add timestamp to prevent caching
+                const res = await fetch(`/api/trades/sync?t=${Date.now()}`);
                 if (res.ok) {
                     fetchDashboardData();
                 }
             } catch (error) {
                 console.error("Failed to sync trades:", error);
             }
-        }, 30000);
+        }, 10000);
 
         return () => clearInterval(syncInterval);
     }, []);
@@ -149,7 +152,9 @@ export default function DashboardPage() {
                   trade_tps (
                     id,
                     tp_price,
-                    is_hit
+                    is_hit,
+                    hit_at,
+                    pnl_portion
                   ),
                   trade_ai_attribution (
                     ai_strategies (
@@ -162,6 +167,9 @@ export default function DashboardPage() {
                 .order("created_at", { ascending: false });
 
             if (tradeError) throw tradeError;
+
+            // Debug log to verify data from DB
+            console.log(`[Dashboard] Fetched ${tradeData?.length} trades. TP Sample:`, tradeData?.[0]?.trade_tps);
 
             const formattedTrades = (tradeData || []).map((t: any) => ({
                 id: t.id,
@@ -251,56 +259,28 @@ export default function DashboardPage() {
         );
     };
 
-    // Format TPs display with hit indicators
+    // Format TPs display (Simple list, no status colors/tooltip as per request)
     const formatTPs = (tps: TakeProfit[], direction: "long" | "short") => {
         if (tps.length === 0) return <span className="text-muted-foreground">-</span>;
 
-        // Sort TPs by price (ascending for long, descending for short)
+        // Sort TPs by price
         const sortedTps = [...tps].sort((a, b) =>
             direction === 'long' ? a.tp_price - b.tp_price : b.tp_price - a.tp_price
         );
 
         return (
-            <TooltipProvider>
-                <Tooltip>
-                    <TooltipTrigger asChild>
-                        <div className="flex items-center gap-1">
-                            <Target className="h-3.5 w-3.5 text-muted-foreground" />
-                            <div className="flex gap-1.5">
-                                {sortedTps.map((tp, idx) => (
-                                    <span
-                                        key={tp.id}
-                                        className={cn(
-                                            "text-xs px-1.5 py-0.5 rounded font-medium",
-                                            tp.is_hit
-                                                ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400"
-                                                : "bg-muted text-muted-foreground"
-                                        )}
-                                    >
-                                        {tp.is_hit && <CheckCircle2 className="inline h-3 w-3 mr-0.5" />}
-                                        ${tp.tp_price.toLocaleString()}
-                                    </span>
-                                ))}
-                            </div>
-                        </div>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                        <div className="text-xs space-y-1">
-                            <p className="font-semibold">Take Profits ({tps.filter(t => t.is_hit).length}/{tps.length} hit)</p>
-                            {sortedTps.map((tp, idx) => (
-                                <div key={tp.id} className="flex items-center gap-2">
-                                    <span>TP{idx + 1}: ${tp.tp_price.toLocaleString()}</span>
-                                    {tp.is_hit ? (
-                                        <Badge variant="outline" className="text-[10px] py-0 h-4 bg-green-100 text-green-700 border-green-200">Hit</Badge>
-                                    ) : (
-                                        <Badge variant="outline" className="text-[10px] py-0 h-4">Pending</Badge>
-                                    )}
-                                </div>
-                            ))}
-                        </div>
-                    </TooltipContent>
-                </Tooltip>
-            </TooltipProvider>
+            <div className="flex flex-wrap items-center gap-1.5">
+                <Target className="h-3.5 w-3.5 text-muted-foreground mr-1" />
+                {sortedTps.map((tp, idx) => (
+                    <Badge
+                        key={tp.id}
+                        variant="secondary"
+                        className="font-mono text-xs font-medium bg-muted/50 text-muted-foreground border-transparent"
+                    >
+                        ${tp.tp_price.toLocaleString()}
+                    </Badge>
+                ))}
+            </div>
         );
     };
 

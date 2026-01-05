@@ -72,10 +72,10 @@ export function Navbar() {
                                         key={link.href}
                                         href={link.href}
                                         className={cn(
-                                            "flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-all hover:bg-accent",
+                                            "flex items-center gap-2 px-3 py-2 rounded-md text-sm font-semibold transition-all hover:bg-zinc-100 dark:hover:bg-zinc-800",
                                             pathname === link.href
                                                 ? "text-primary bg-primary/5"
-                                                : "text-muted-foreground hover:text-foreground"
+                                                : "text-zinc-500 dark:text-zinc-400 hover:text-foreground"
                                         )}
                                     >
                                         <link.icon className="h-4 w-4" />
