@@ -212,6 +212,8 @@ export default function CreateTradePage() {
                     entry_price: parsePrice(values.entryPrice),
                     sl: parsePrice(values.stopLoss),
                     status: "pending_entry",
+                    position_size: 1000,
+                    remaining_position: 1000,
                 })
                 .select()
                 .single();

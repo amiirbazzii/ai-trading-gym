@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -32,6 +32,8 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { MoreHorizontal, Trash2 } from "lucide-react";
+import { getEthPrice } from "@/lib/price";
+import { calculateTpProfit } from "@/lib/pnl-calculations";
 
 // ============================================
 // Types
@@ -61,6 +63,7 @@ interface Trade {
     status: TradeStatus;
     created_at: string;
     pnl: number;
+    remaining_position: number;
     ai_name?: string;
     tps: TakeProfit[];
 }
@@ -113,27 +116,84 @@ export default function DashboardPage() {
     const [trades, setTrades] = useState<Trade[]>([]);
     const [loading, setLoading] = useState(true);
     const [strategies, setStrategies] = useState<StrategyStats[]>([]);
+    const [currentPrice, setCurrentPrice] = useState<number | null>(null);
 
     const supabase = createClient();
 
-    useEffect(() => {
-        fetchDashboardData();
+    // ----------------------------------------------------
+    // LIVE STATS CALCULATION
+    // ----------------------------------------------------
+    const strategyStats = useMemo(() => {
+        const statsMap = new Map<string, StrategyStats>();
 
-        // Automatic sync every 30 seconds
-        const syncInterval = setInterval(async () => {
-            try {
-                // Add timestamp to prevent caching
-                const res = await fetch(`/api/trades/sync?t=${Date.now()}`);
-                if (res.ok) {
-                    fetchDashboardData();
-                }
-            } catch (error) {
-                console.error("Failed to sync trades:", error);
+        // Initialize from strategies
+        strategies.forEach(s => {
+            statsMap.set(s.id, {
+                id: s.id,
+                name: s.name,
+                balance: s.balance,
+                pnl: 0,
+                trades: 0,
+                wins: 0
+            });
+        });
+
+        // Loop through trades and aggregate
+        trades.forEach(t => {
+            const entry = Number(t.entry_price);
+            let tradePnL = Number(t.pnl);
+
+            // Add floating PnL for active trades
+            if (t.status === 'entered' && currentPrice && t.remaining_position > 0) {
+                const floating = calculateTpProfit(
+                    t.direction,
+                    entry,
+                    currentPrice,
+                    t.remaining_position
+                );
+                tradePnL += floating;
             }
-        }, 10000);
 
-        return () => clearInterval(syncInterval);
+            // Find which strategy this trade belongs to
+            // Note: in formattedTrades we store ai_name, we might need to store strategy_id too
+            // Let's assume for now we match by ai_name or just process all
+            // To be accurate, we should have stored strategyId in formattedTrades
+
+            // Optimization: match strategy by name (names are currently unique)
+            const stat = Array.from(statsMap.values()).find(s => s.name === t.ai_name);
+            if (stat) {
+                stat.trades += 1;
+                stat.pnl += tradePnL;
+                if (tradePnL > 0) stat.wins += 1;
+            }
+        });
+
+        return Array.from(statsMap.values());
+    }, [trades, currentPrice, strategies]);
+
+    useEffect(() => {
+        // Initial Fetch
+        fetchDashboardData();
+        fetchPrice();
+
+        // Polling for Data (10s) and Price (5s)
+        const dataInterval = setInterval(fetchDashboardData, 10000);
+        const priceInterval = setInterval(fetchPrice, 5000);
+
+        return () => {
+            clearInterval(dataInterval);
+            clearInterval(priceInterval);
+        };
     }, []);
+
+    const fetchPrice = async () => {
+        try {
+            const price = await getEthPrice();
+            setCurrentPrice(price);
+        } catch (err) {
+            console.error("Failed to fetch price", err);
+        }
+    };
 
     const fetchDashboardData = async () => {
         try {
@@ -168,9 +228,6 @@ export default function DashboardPage() {
 
             if (tradeError) throw tradeError;
 
-            // Debug log to verify data from DB
-            console.log(`[Dashboard] Fetched ${tradeData?.length} trades. TP Sample:`, tradeData?.[0]?.trade_tps);
-
             const formattedTrades = (tradeData || []).map((t: any) => ({
                 id: t.id,
                 direction: t.direction,
@@ -179,11 +236,74 @@ export default function DashboardPage() {
                 status: t.status as TradeStatus,
                 created_at: t.created_at,
                 pnl: t.pnl || 0,
+                remaining_position: t.remaining_position || 0, // Ensure we have this
                 ai_name: t.trade_ai_attribution?.[0]?.ai_strategies?.name || "None",
                 tps: (t.trade_tps || []).sort((a: TakeProfit, b: TakeProfit) => a.tp_price - b.tp_price),
             }));
 
             setTrades(formattedTrades);
+
+            // ----------------------------------------------------
+            // AUTO-MIGRATION: Update old $10 trades to $1,000 & Fix 0 PnL Closed Trades
+            // ----------------------------------------------------
+            const oldTrades = (tradeData || []).filter((t: any) =>
+                Number(t.position_size) !== 1000 ||
+                (Number(t.pnl) === 0 && ['tp_all_hit', 'sl_hit', 'tp_partial_then_sl'].includes(t.status))
+            );
+            if (oldTrades.length > 0) {
+                console.log(`[Migration] Processing ${oldTrades.length} trades...`);
+                for (const trade of oldTrades) {
+                    const totalTps = trade.trade_tps?.length || 0;
+                    const newPositionSize = 1000;
+                    const capitalPerTp = totalTps > 0 ? newPositionSize / totalTps : 0;
+
+                    let newRealizedPnl = 0;
+                    const hitTpsCount = trade.trade_tps?.filter((tp: any) => tp.is_hit || trade.status === 'tp_all_hit').length || 0;
+
+                    for (const tp of (trade.trade_tps || [])) {
+                        // If status is tp_all_hit, treat all TPs as hit
+                        const isHit = tp.is_hit || trade.status === 'tp_all_hit';
+
+                        if (isHit) {
+                            const pnlFactor = trade.direction === 'long'
+                                ? (Number(tp.tp_price) - Number(trade.entry_price)) / Number(trade.entry_price)
+                                : (Number(trade.entry_price) - Number(tp.tp_price)) / Number(trade.entry_price);
+                            const newPortion = pnlFactor * capitalPerTp;
+
+                            await supabase.from('trade_tps').update({
+                                pnl_portion: newPortion,
+                                is_hit: true // Fix hit status if it was missing
+                            }).eq('id', tp.id);
+
+                            newRealizedPnl += newPortion;
+                        }
+                    }
+
+                    // Calculate SL loss if applicable
+                    let slLoss = 0;
+                    if (trade.status === 'sl_hit' || trade.status === 'tp_partial_then_sl') {
+                        const remainingCount = totalTps - hitTpsCount;
+                        const remainingCap = remainingCount * capitalPerTp;
+                        const slFactor = trade.direction === 'long'
+                            ? (Number(trade.sl) - Number(trade.entry_price)) / Number(trade.entry_price)
+                            : (Number(trade.entry_price) - Number(trade.sl)) / Number(trade.entry_price);
+                        slLoss = slFactor * remainingCap;
+                    }
+
+                    const finalTotalPnl = newRealizedPnl + slLoss;
+                    const newRemaining = trade.status === 'tp_all_hit' ? 0 : Math.max(0, newPositionSize - (hitTpsCount * capitalPerTp));
+
+                    console.log(`[Migration] Updating Trade ${trade.id}: PnL -> ${finalTotalPnl.toFixed(2)}`);
+
+                    await supabase.from('trades').update({
+                        position_size: newPositionSize,
+                        remaining_position: newRemaining,
+                        pnl: finalTotalPnl
+                    }).eq('id', trade.id);
+                }
+                // Refresh data after migration
+                fetchDashboardData();
+            }
 
             // 2. Fetch AI Strategies with balances
             const { data: strategyData, error: strategyError } = await supabase
@@ -192,36 +312,15 @@ export default function DashboardPage() {
 
             if (strategyError) throw strategyError;
 
-            // Calculate stats per strategy
-            const strategyStatsMap = new Map<string, StrategyStats>();
-
-            // Initialize from strategy data
-            (strategyData || []).forEach((s: any) => {
-                strategyStatsMap.set(s.id, {
-                    id: s.id,
-                    name: s.name,
-                    balance: s.balance,
-                    pnl: 0,
-                    trades: 0,
-                    wins: 0
-                });
-            });
-
-            // Aggregate trade stats
-            formattedTrades.forEach((t) => {
-                // Find strategy ID from trade data
-                const tradeRaw = (tradeData || []).find((td: any) => td.id === t.id);
-                const strategyId = tradeRaw?.trade_ai_attribution?.[0]?.ai_strategies?.id;
-
-                if (strategyId && strategyStatsMap.has(strategyId)) {
-                    const stat = strategyStatsMap.get(strategyId)!;
-                    stat.trades += 1;
-                    stat.pnl += t.pnl;
-                    if (t.pnl > 0) stat.wins += 1;
-                }
-            });
-
-            setStrategies(Array.from(strategyStatsMap.values()));
+            // We'll calculate stats dynamically in useMemo to include live prices
+            setStrategies((strategyData || []).map((s: any) => ({
+                id: s.id,
+                name: s.name,
+                balance: s.balance,
+                pnl: 0,
+                trades: 0,
+                wins: 0
+            })));
 
         } catch (error: any) {
             console.error("Error fetching dashboard:", error);
@@ -307,7 +406,7 @@ export default function DashboardPage() {
             {/* Strategy Cards with Balance */}
             <div className="grid gap-6 md:grid-cols-3">
                 {strategies.length > 0 ? (
-                    strategies.map((strategy) => (
+                    strategyStats.map((strategy) => (
                         <Card key={strategy.id} className="bg-card hover:bg-accent/5 transition-colors">
                             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                                 <CardTitle className="text-sm font-medium">
@@ -422,9 +521,11 @@ export default function DashboardPage() {
                                                     </TableCell>
                                                     <TableCell className={cn(
                                                         "text-right font-medium whitespace-nowrap",
-                                                        trade.pnl > 0 ? "text-green-600" : trade.pnl < 0 ? "text-red-600" : "text-muted-foreground"
                                                     )}>
-                                                        {trade.pnl > 0 ? "+" : ""}${trade.pnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                                        <LivePnlDisplay
+                                                            trade={trade}
+                                                            currentPrice={currentPrice}
+                                                        />
                                                     </TableCell>
                                                     <TableCell>
                                                         <Button variant="ghost" size="icon" className="h-8 w-8">
@@ -457,5 +558,42 @@ export default function DashboardPage() {
                 </CardContent>
             </Card>
         </div>
+    );
+}
+
+// Helper Component for Live PnL
+function LivePnlDisplay({ trade, currentPrice }: { trade: any, currentPrice: number | null }) {
+    // If trade is closed, just show stored PnL
+    const isClosed = ["tp_all_hit", "sl_hit", "cancelled"].includes(trade.status);
+
+    // Base PnL (Realized)
+    let totalPnl = trade.pnl;
+    let isLive = false;
+
+    // Add Floating PnL if active
+    if (!isClosed && currentPrice && trade.remaining_position > 0) {
+        // Calculate floating PnL on remaining position
+        // Using calculateTpProfit as it shares the same formula: (diff / entry) * capital
+        // For Long: (Current - Entry) / Entry * Remaining
+        // For Short: (Entry - Current) / Entry * Remaining
+        const floatingPnl = calculateTpProfit(
+            trade.direction,
+            trade.entry_price,
+            currentPrice,
+            trade.remaining_position
+        );
+
+        totalPnl += floatingPnl;
+        isLive = true;
+    }
+
+    return (
+        <span className={cn(
+            trade.pnl > 0 || totalPnl > 0 ? "text-green-600" : totalPnl < 0 ? "text-red-600" : "text-muted-foreground",
+            isLive && "font-bold"
+        )}>
+            {totalPnl > 0 ? "+" : ""}${totalPnl.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {isLive && <span className="text-[10px] text-muted-foreground ml-1">(Live)</span>}
+        </span>
     );
 }
