@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/utils/supabase/client";
 import { Button } from "@/components/ui/button";
+import Link from "next/link";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { toast } from "sonner";
@@ -119,6 +120,16 @@ export default function LoginPage() {
                                     onChange={(e) => setPassword(e.target.value)}
                                     required
                                 />
+                                {!isSignUp && (
+                                    <div className="flex justify-end">
+                                        <Link
+                                            href="/forgot-password"
+                                            className="text-xs font-medium text-muted-foreground hover:text-primary transition-colors"
+                                        >
+                                            Forgot password?
+                                        </Link>
+                                    </div>
+                                )}
                             </div>
                             <Button type="submit" size="lg" className="w-full font-bold shadow-lg shadow-primary/20" disabled={loading}>
                                 {loading ? "Processing..." : isSignUp ? "Sign Up" : "Sign In"}
