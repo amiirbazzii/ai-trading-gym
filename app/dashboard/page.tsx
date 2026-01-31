@@ -329,6 +329,48 @@ export default function DashboardPage() {
         }
     };
 
+    const handleUpdateStatus = async (trade: Trade, newStatus: TradeStatus) => {
+        try {
+            const updates: any = { status: newStatus };
+
+            // If closing the trade manually, lock in the current PnL
+            const isClosing = ["tp_all_hit", "sl_hit", "tp_partial_then_sl", "cancelled"].includes(newStatus);
+            const wasActive = ["entered", "pending_entry"].includes(trade.status);
+
+            if (isClosing && wasActive && currentPrice) {
+                updates.exit_price = currentPrice;
+                updates.remaining_position = 0;
+
+                // Simple PnL calculation for manual close: (Current - Entry) / Entry * Position
+                const entry = Number(trade.entry_price);
+                const pnlFactor = trade.direction === 'long'
+                    ? (currentPrice - entry) / entry
+                    : (entry - currentPrice) / entry;
+
+                // For a full manual close, we take the existing PnL (from TPs) 
+                // and add the remaining floating PnL
+                const floatingPnl = pnlFactor * trade.remaining_position;
+                updates.pnl = (trade.pnl || 0) + floatingPnl;
+            } else if (newStatus === 'entered' && trade.status === 'pending_entry') {
+                // Moving from pending to entered
+                updates.remaining_position = trade.remaining_position || 1000;
+            }
+
+            const { error } = await supabase
+                .from("trades")
+                .update(updates)
+                .eq("id", trade.id);
+
+            if (error) throw error;
+
+            toast.success(`Trade marked as ${STATUS_CONFIG[newStatus].label}`);
+            fetchDashboardData(); // Refresh everything
+        } catch (error: any) {
+            console.error("Error updating status:", error);
+            toast.error("Failed to update status");
+        }
+    };
+
     const handleDeleteTrade = async (tradeId: string) => {
         try {
             const { error } = await supabase
@@ -534,7 +576,28 @@ export default function DashboardPage() {
                                                     </TableCell>
                                                 </TableRow>
                                             </DropdownMenuTrigger>
-                                            <DropdownMenuContent align="end">
+                                            <DropdownMenuContent align="end" className="w-48">
+                                                <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                                                    Change Status
+                                                </div>
+                                                <div className="grid grid-cols-1 gap-0.5">
+                                                    {(Object.keys(STATUS_CONFIG) as TradeStatus[]).map((status) => (
+                                                        <DropdownMenuItem
+                                                            key={status}
+                                                            onClick={() => handleUpdateStatus(trade, status)}
+                                                            className={cn(
+                                                                "flex items-center gap-2 cursor-pointer",
+                                                                trade.status === status && "bg-accent"
+                                                            )}
+                                                        >
+                                                            <div className={cn("w-2 h-2 rounded-full", STATUS_CONFIG[status].className.split(' ')[0])} />
+                                                            {STATUS_CONFIG[status].label}
+                                                        </DropdownMenuItem>
+                                                    ))}
+                                                </div>
+
+                                                <div className="my-1 border-t border-muted" />
+
                                                 <DropdownMenuItem
                                                     className="text-red-500 focus:text-red-500 focus:bg-red-50 dark:focus:bg-red-950/20 cursor-pointer"
                                                     onClick={() => handleDeleteTrade(trade.id)}
