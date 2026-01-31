@@ -101,6 +101,29 @@ async function handlePendingEntries(supabase: any, currentPrice: number) {
     }
 
     for (const trade of pendingTrades || []) {
+        // 1. Check if SL was hit BEFORE entry (Invalidates setup)
+        const slHitBeforeEntry = isPriceTriggered(
+            trade.direction,
+            currentPrice,
+            trade.sl,
+            true // is stop loss
+        );
+
+        if (slHitBeforeEntry) {
+            const { error: cancelError } = await supabase
+                .from('trades')
+                .update({ status: 'cancelled' })
+                .eq('id', trade.id);
+
+            if (cancelError) {
+                console.error(`[Trade Sync] Error cancelling trade ${trade.id}:`, cancelError);
+            } else {
+                console.log(`[Trade Sync] Trade ${trade.id} cancelled (SL hit before entry) at $${currentPrice.toFixed(2)}`);
+            }
+            continue; // Move to next trade
+        }
+
+        // 2. Check if Entry reached
         const triggered = isPriceTriggered(
             trade.direction,
             currentPrice,
