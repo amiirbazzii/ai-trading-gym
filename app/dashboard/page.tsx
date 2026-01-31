@@ -564,14 +564,14 @@ export default function DashboardPage() {
 // Helper Component for Live PnL
 function LivePnlDisplay({ trade, currentPrice }: { trade: any, currentPrice: number | null }) {
     // If trade is closed, just show stored PnL
-    const isClosed = ["tp_all_hit", "sl_hit", "cancelled"].includes(trade.status);
+    const isClosed = ["tp_all_hit", "sl_hit", "tp_partial_then_sl", "cancelled"].includes(trade.status);
 
     // Base PnL (Realized)
     let totalPnl = trade.pnl;
     let isLive = false;
 
-    // Add Floating PnL if active
-    if (!isClosed && currentPrice && trade.remaining_position > 0) {
+    // Add Floating PnL ONLY if trade is active (entered)
+    if (trade.status === 'entered' && currentPrice && trade.remaining_position > 0) {
         // Calculate floating PnL on remaining position
         // Using calculateTpProfit as it shares the same formula: (diff / entry) * capital
         // For Long: (Current - Entry) / Entry * Remaining
