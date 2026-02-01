@@ -298,11 +298,11 @@ export default function DashboardPage() {
     };
 
     return (
-        <div className="container max-w-7xl mx-auto py-10 px-6 space-y-8">
-            <div className="flex flex-col md:flex-row justify-between md:items-center gap-4">
-                <div>
-                    <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
-                    <p className="text-muted-foreground mt-1">
+        <div className="container max-w-7xl mx-auto py-6 md:py-10 px-4 md:px-6 space-y-6 md:space-y-8">
+            <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
+                <div className="space-y-1">
+                    <h1 className="text-2xl md:text-3xl font-bold tracking-tight">Dashboard</h1>
+                    <p className="text-sm md:text-base text-muted-foreground">
                         Track your AI strategies and paper trades simulation.
                     </p>
                 </div>

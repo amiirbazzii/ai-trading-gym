@@ -282,10 +282,10 @@ export default function CreateTradePage() {
     };
 
     return (
-        <div className="container max-w-3xl mx-auto py-12 px-6">
-            <div className="mb-8 space-y-2">
-                <h1 className="text-3xl font-bold tracking-tight">New Paper Trade</h1>
-                <p className="text-muted-foreground">
+        <div className="container max-w-3xl mx-auto py-8 md:py-12 px-4 md:px-6">
+            <div className="mb-6 md:mb-8 space-y-1 md:space-y-2">
+                <h1 className="text-2xl md:text-3xl font-bold tracking-tight">New Paper Trade</h1>
+                <p className="text-sm md:text-base text-muted-foreground">
                     Simulate a new trade position and track its performance against your AI strategies.
                 </p>
             </div>

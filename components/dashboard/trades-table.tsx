@@ -67,12 +67,12 @@ export function TradesTable({ trades, loading, currentPrice, onUpdateStatus, onD
                     <Table>
                         <TableHeader>
                             <TableRow>
-                                <TableHead>Date</TableHead>
-                                <TableHead>Strategy</TableHead>
+                                <TableHead className="hidden lg:table-cell">Date</TableHead>
+                                <TableHead className="hidden md:table-cell">Strategy</TableHead>
                                 <TableHead>Direction</TableHead>
                                 <TableHead>Entry</TableHead>
-                                <TableHead>Stop Loss</TableHead>
-                                <TableHead>Take Profits</TableHead>
+                                <TableHead className="hidden lg:table-cell">Stop Loss</TableHead>
+                                <TableHead className="hidden xl:table-cell">Take Profits</TableHead>
                                 <TableHead>Status</TableHead>
                                 <TableHead className="text-right">PnL</TableHead>
                                 <TableHead className="w-[50px]"></TableHead>
@@ -88,28 +88,28 @@ export function TradesTable({ trades, loading, currentPrice, onUpdateStatus, onD
                                     <DropdownMenu key={trade.id}>
                                         <DropdownMenuTrigger asChild>
                                             <TableRow className="cursor-pointer hover:bg-muted/50 transition-colors">
-                                                <TableCell className="text-muted-foreground text-sm whitespace-nowrap">
+                                                <TableCell className="hidden lg:table-cell text-muted-foreground text-sm whitespace-nowrap">
                                                     {formatDistanceToNow(new Date(trade.created_at), { addSuffix: true })}
                                                 </TableCell>
-                                                <TableCell className="font-medium">{trade.ai_name}</TableCell>
+                                                <TableCell className="hidden md:table-cell font-medium">{trade.ai_name}</TableCell>
                                                 <TableCell>
                                                     <Badge
                                                         variant="outline"
                                                         className={cn(
-                                                            "border-none",
+                                                            "border-none px-2 py-0.5",
                                                             trade.direction === 'long'
-                                                                ? 'bg-green-100 text-green-800 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400'
-                                                                : 'bg-red-100 text-red-800 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400'
+                                                                ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
+                                                                : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
                                                         )}
                                                     >
                                                         {trade.direction === "long" ? <TrendingUp className="mr-1 h-3 w-3" /> : <TrendingDown className="mr-1 h-3 w-3" />}
-                                                        {trade.direction.toUpperCase()}
+                                                        <span className="sm:inline hidden">{trade.direction.toUpperCase()}</span>
                                                     </Badge>
                                                 </TableCell>
                                                 <TableCell className="font-medium">
                                                     ${trade.entry_price.toLocaleString()}
                                                 </TableCell>
-                                                <TableCell>
+                                                <TableCell className="hidden lg:table-cell">
                                                     <div className="flex items-center gap-1.5">
                                                         <ShieldX className="h-3.5 w-3.5 text-red-500" />
                                                         <span className="text-red-600 dark:text-red-400 font-medium">
@@ -117,7 +117,7 @@ export function TradesTable({ trades, loading, currentPrice, onUpdateStatus, onD
                                                         </span>
                                                     </div>
                                                 </TableCell>
-                                                <TableCell>
+                                                <TableCell className="hidden xl:table-cell">
                                                     {formatTPs(trade.tps, trade.direction)}
                                                 </TableCell>
                                                 <TableCell>
