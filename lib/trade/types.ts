@@ -18,6 +18,14 @@ export interface TakeProfit {
     pnl_portion: number;
 }
 
+export interface AIStrategy {
+    id: string;
+    name: string;
+    description?: string;
+    balance: number;
+    user_id: string;
+}
+
 export interface Trade {
     id: string;
     user_id: string;

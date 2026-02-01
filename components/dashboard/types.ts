@@ -34,4 +34,5 @@ export interface StrategyStats {
     pnl: number;
     trades: number;
     wins: number;
+    user_id: string;
 }

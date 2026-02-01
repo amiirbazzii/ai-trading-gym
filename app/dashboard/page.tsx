@@ -15,6 +15,15 @@ import { StrategyCards } from "@/components/dashboard/strategy-cards";
 import { TradesTable } from "@/components/dashboard/trades-table";
 import { STATUS_CONFIG } from "@/components/dashboard/status-badge";
 import { runTradeMigration } from "@/lib/trade/migration";
+import {
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+    DialogFooter,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 // Types
 import { Trade, StrategyStats, TradeStatus, TakeProfit } from "@/components/dashboard/types";
@@ -24,6 +33,8 @@ export default function DashboardPage() {
     const [loading, setLoading] = useState(true);
     const [strategies, setStrategies] = useState<StrategyStats[]>([]);
     const [currentPrice, setCurrentPrice] = useState<number | null>(null);
+    const [editingStrategy, setEditingStrategy] = useState<StrategyStats | null>(null);
+    const [editName, setEditName] = useState("");
 
     const supabase = createClient();
 
@@ -41,7 +52,8 @@ export default function DashboardPage() {
                 balance: s.balance,
                 pnl: 0,
                 trades: 0,
-                wins: 0
+                wins: 0,
+                user_id: s.user_id
             });
         });
 
@@ -156,25 +168,70 @@ export default function DashboardPage() {
             }
 
             // 2. Fetch AI Strategies with balances
+            // We use a safe fetch here in case the user_id column hasn't been added yet
             const { data: strategyData, error: strategyError } = await supabase
                 .from("ai_strategies")
-                .select("id, name, balance");
+                .select("id, name, balance, user_id");
 
-            if (strategyError) throw strategyError;
+            let finalStrategyData: any[] = strategyData || [];
 
-            setStrategies((strategyData || []).map((s: any) => ({
+            if (strategyError) {
+                console.warn("[Dashboard] Could not fetch user_id from strategies, falling back...", strategyError.message);
+                const { data: fallbackData, error: fallbackError } = await supabase
+                    .from("ai_strategies")
+                    .select("id, name, balance");
+
+                if (fallbackError) throw fallbackError;
+                finalStrategyData = fallbackData || [];
+            }
+
+            setStrategies((finalStrategyData || []).map((s: any) => ({
                 id: s.id,
                 name: s.name,
                 balance: s.balance,
                 pnl: 0,
                 trades: 0,
-                wins: 0
+                wins: 0,
+                user_id: s.user_id || "public"
             })));
 
         } catch (error: any) {
             console.error("Error fetching dashboard:", error);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleDeleteStrategy = async (strategyId: string) => {
+        if (!confirm("Are you sure? This will not delete trades, but they will be unassigned.")) return;
+        try {
+            const { error } = await supabase.from("ai_strategies").delete().eq("id", strategyId);
+            if (error) throw error;
+            toast.success("Strategy deleted");
+            fetchDashboardData();
+        } catch (error: any) {
+            toast.error("Failed to delete strategy");
+        }
+    };
+
+    const handleEditStrategy = (strategy: StrategyStats) => {
+        setEditingStrategy(strategy);
+        setEditName(strategy.name);
+    };
+
+    const saveStrategyEdit = async () => {
+        if (!editingStrategy || !editName) return;
+        try {
+            const { error } = await supabase
+                .from("ai_strategies")
+                .update({ name: editName })
+                .eq("id", editingStrategy.id);
+            if (error) throw error;
+            toast.success("Strategy updated");
+            setEditingStrategy(null);
+            fetchDashboardData();
+        } catch (error: any) {
+            toast.error("Failed to update strategy");
         }
     };
 
@@ -259,8 +316,36 @@ export default function DashboardPage() {
 
             {/* Strategy Cards */}
             <div className="grid gap-6 md:grid-cols-3">
-                <StrategyCards strategies={strategyStats} />
+                <StrategyCards
+                    strategies={strategyStats}
+                    onDelete={handleDeleteStrategy}
+                    onEdit={handleEditStrategy}
+                />
             </div>
+
+            {/* Edit Strategy Dialog */}
+            <Dialog open={!!editingStrategy} onOpenChange={(open) => !open && setEditingStrategy(null)}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Edit Strategy</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-4 py-4">
+                        <div className="space-y-2">
+                            <Label htmlFor="name">Strategy Name</Label>
+                            <Input
+                                id="name"
+                                value={editName}
+                                onChange={(e) => setEditName(e.target.value)}
+                                placeholder="Enter strategy name"
+                            />
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setEditingStrategy(null)}>Cancel</Button>
+                        <Button onClick={saveStrategyEdit}>Save Changes</Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
             {/* Recent Trades Table */}
             <TradesTable

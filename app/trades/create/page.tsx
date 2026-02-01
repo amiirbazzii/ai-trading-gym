@@ -150,10 +150,16 @@ export default function CreateTradePage() {
 
     useEffect(() => {
         const fetchStrategies = async () => {
-            const { data, error } = await supabase.from("ai_strategies").select("id, name");
+            const { data, error } = await supabase.from("ai_strategies").select("id, name, user_id");
+
             if (error) {
-                console.error("Error fetching strategies:", error);
-                toast.error("Failed to load AI strategies");
+                console.warn("[CreateTrade] Could not fetch user_id, falling back...", error.message);
+                const { data: fallback, error: fallbackErr } = await supabase.from("ai_strategies").select("id, name");
+                if (fallbackErr) {
+                    toast.error("Failed to load AI strategies");
+                    return;
+                }
+                setStrategies(fallback || []);
             } else {
                 setStrategies(data || []);
             }
@@ -166,12 +172,31 @@ export default function CreateTradePage() {
         if (!query) return;
 
         const newStrategyName = query;
-        // Optimistic updatish or waiting
+        const { data: { user } } = await supabase.auth.getUser();
+
+        if (!user) {
+            toast.error("You must be logged in to create a strategy");
+            return;
+        }
+
         try {
-            const { data, error } = await supabase.from('ai_strategies').insert({
+            // Attempt to insert with user_id
+            let payload: any = {
                 name: newStrategyName,
-                description: 'User created strategy'
-            }).select().single();
+                description: 'User created strategy',
+                user_id: user.id
+            };
+
+            let { data, error } = await supabase.from('ai_strategies').insert(payload).select().single();
+
+            // If it fails with user_id missing, try without it
+            if (error && error.message.includes('user_id')) {
+                console.warn("[CreateTrade] user_id column missing, inserting without it...");
+                delete payload.user_id;
+                const { data: fallbackData, error: fallbackError } = await supabase.from('ai_strategies').insert(payload).select().single();
+                data = fallbackData;
+                error = fallbackError;
+            }
 
             if (error) throw error;
 
