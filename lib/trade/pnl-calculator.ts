@@ -15,12 +15,16 @@ export class PnLCalculator {
         targetPrice: number,
         isStopLoss: boolean
     ): boolean {
+        // Round to 4 decimal places to avoid floating point precision issues (Binance uses 2-4)
+        const cp = Math.round(currentPrice * 10000) / 10000;
+        const tp = Math.round(targetPrice * 10000) / 10000;
+
         if (direction === 'long') {
             // Long: Hit target if price >= target. Hit SL if price <= SL.
-            return isStopLoss ? currentPrice <= targetPrice : currentPrice >= targetPrice;
+            return isStopLoss ? cp <= tp : cp >= tp;
         } else {
             // Short: Hit target if price <= target. Hit SL if price >= SL.
-            return isStopLoss ? currentPrice >= targetPrice : currentPrice <= targetPrice;
+            return isStopLoss ? cp >= tp : cp <= tp;
         }
     }
 

@@ -111,6 +111,9 @@ export default function DashboardPage() {
 
     const fetchDashboardData = async () => {
         try {
+            // Trigger background sync
+            fetch("/api/trades/sync").catch(err => console.error("Sync failed", err));
+
             const { data: { user } } = await supabase.auth.getUser();
 
             if (!user) {

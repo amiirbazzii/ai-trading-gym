@@ -268,6 +268,10 @@ export default function CreateTradePage() {
             if (aiError) throw new Error(`AI attribution failed: ${aiError.message}`);
 
             toast.success("Paper trade created successfully!");
+
+            // Trigger background sync immediately
+            fetch("/api/trades/sync").catch(err => console.error("Initial sync failed", err));
+
             router.push("/dashboard");
         } catch (error: any) {
             console.error("Error creating trade:", error);
