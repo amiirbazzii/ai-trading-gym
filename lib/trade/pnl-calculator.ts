@@ -80,8 +80,26 @@ export class PnLCalculator {
         // If TPs exist, we split capital evenly.
         const capitalPerTp = totalTps > 0 ? positionSize / totalTps : 0;
 
-        let currentPnl = trade.pnl || 0;
-        let remainingPosition = trade.remaining_position ?? positionSize;
+        // IDEMPOTENCY FIX: 
+        // We recalculate current state from TP history rather than trusting trade.pnl/remaining_position
+        // This prevents "double counting" if trade_tps update fails but trade update succeeds.
+        const hitTps = tps.filter(tp => tp.is_hit);
+        let currentPnl = hitTps.reduce((sum, tp) => sum + (tp.pnl_portion || 0), 0);
+
+        // If we have TPs but calculated PnL is 0 and trade.pnl is NOT 0, it might be a legacy trade or manual update.
+        // However, for standard auto-trading, we stick to the sum.
+        // If no TPs exist (manual trade?), we fall back to trade.pnl
+        if (totalTps === 0) {
+            currentPnl = trade.pnl || 0;
+        }
+
+        let remainingPosition = totalTps > 0
+            ? positionSize - (hitTps.length * capitalPerTp)
+            : (trade.remaining_position ?? positionSize);
+
+        // Fix precision issues
+        if (remainingPosition < 0.01) remainingPosition = 0;
+
         const originalRemaining = remainingPosition;
 
         // 1. Check Stop Loss logic first (simplest: if SL hit, game over for remaining portion)
@@ -89,7 +107,7 @@ export class PnLCalculator {
 
         if (isSlHit) {
             // Validate we haven't already closed it
-            if (trade.status !== 'sl_hit' && trade.status !== 'tp_partial_then_sl' && trade.status !== 'tp_all_hit' && trade.status !== 'cancelled') {
+            if (trade.status !== 'sl_hit' && trade.status !== 'tp_partial_then_sl' && trade.status !== 'tp_all_hit') {
 
                 const slLoss = this.calculatePnL(
                     trade.direction,
@@ -99,7 +117,7 @@ export class PnLCalculator {
                 );
 
                 const finalPnl = currentPnl + slLoss;
-                const hitSomeTps = tps.some(tp => tp.is_hit);
+                const hitSomeTps = hitTps.length > 0;
                 const newStatus: TradeStatus = hitSomeTps ? 'tp_partial_then_sl' : 'sl_hit';
 
                 result.shouldUpdate = true;

@@ -9,7 +9,7 @@ interface LivePnlDisplayProps {
 
 export function LivePnlDisplay({ trade, currentPrice }: LivePnlDisplayProps) {
     // If trade is closed, just show stored PnL
-    const isClosed = ["tp_all_hit", "sl_hit", "tp_partial_then_sl", "cancelled"].includes(trade.status);
+    const isClosed = ["tp_all_hit", "sl_hit", "tp_partial_then_sl"].includes(trade.status);
 
     // Base PnL (Realized)
     let totalPnl = trade.pnl;

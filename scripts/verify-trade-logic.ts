@@ -43,12 +43,6 @@ async function runTests() {
     const res1 = StatusManager.checkPendingStatus(trade1, 3000); // Hit entry
     console.log(`[Case 1] Pending -> Entered: ${res1.updates.status === 'entered' ? 'PASS' : 'FAIL'} (Got ${res1.updates.status})`);
 
-    // Case 2: Pending -> Cancelled (SL Hit before Entry)
-    // Setup: Long ETH at 3000, SL 2900. Current Price: 2800.
-    const trade2 = createMockTrade('t2', 'pending_entry', 'long', 3000, 2900, [3100]);
-    const res2 = StatusManager.checkPendingStatus(trade2, 2800);
-    console.log(`[Case 2] Pending -> Cancelled: ${res2.updates.status === 'cancelled' ? 'PASS' : 'FAIL'} (Got ${res2.updates.status})`);
-
     // Case 3: Entered -> TP1 Hit
     // Setup: Long ETH at 3000, SL 2900, TP1 3100, TP2 3200. Price: 3100.
     const trade3 = createMockTrade('t3', 'entered', 'long', 3000, 2900, [3100, 3200]);

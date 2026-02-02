@@ -121,7 +121,7 @@ export function TradesTable({ trades, loading, currentPrice, onUpdateStatus, onD
                                                     {formatTPs(trade.tps, trade.direction)}
                                                 </TableCell>
                                                 <TableCell>
-                                                    <TradeStatusBadge status={trade.status} />
+                                                    <TradeStatusBadge trade={trade} />
                                                 </TableCell>
                                                 <TableCell className={cn(
                                                     "text-right font-medium whitespace-nowrap",

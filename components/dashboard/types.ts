@@ -4,7 +4,7 @@ export type TradeStatus =
     | "tp_all_hit"
     | "tp_partial_then_sl"
     | "sl_hit"
-    | "cancelled";
+    | "sl_hit";
 
 export interface TakeProfit {
     id: string;
@@ -25,6 +25,7 @@ export interface Trade {
     remaining_position: number;
     ai_name?: string;
     tps: TakeProfit[];
+    updated_at?: string;
 }
 
 export interface StrategyStats {

@@ -17,24 +17,8 @@ export class StatusManager {
             return result;
         }
 
-        // 1. Check if SL hit before entry (Invalidation)
-        const isInvalidated = PnLCalculator.isTriggered(
-            trade.direction,
-            currentPrice,
-            trade.sl,
-            true // is stop loss
-        );
+        // 1. Entry Check (we wait until entry is triggered)
 
-        if (isInvalidated) {
-            result.shouldUpdate = true;
-            result.updates = {
-                status: 'cancelled',
-                // We don't set exit status or PnL for cancelled trades usually, 
-                // or maybe we set it to 0. canceled is final.
-            };
-            // Optional: Log invalidation
-            return result;
-        }
 
         // 2. Check if Entry reached
         const isEntered = PnLCalculator.isTriggered(

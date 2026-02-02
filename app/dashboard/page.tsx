@@ -243,7 +243,7 @@ export default function DashboardPage() {
             const updates: any = { status: newStatus };
 
             // If closing the trade manually, lock in the current PnL
-            const isClosing = ["tp_all_hit", "sl_hit", "tp_partial_then_sl", "cancelled"].includes(newStatus);
+            const isClosing = ["tp_all_hit", "sl_hit", "tp_partial_then_sl"].includes(newStatus);
             const wasActive = ["entered", "pending_entry"].includes(trade.status);
 
             if (isClosing && wasActive && currentPrice) {
