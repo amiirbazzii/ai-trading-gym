@@ -12,9 +12,12 @@ export function EthPriceTicker() {
 
     const fetchPrice = async () => {
         try {
-            const currentPrice = await getEthPrice();
-            setPrice(currentPrice);
-            setLastUpdated(new Date());
+            const res = await fetch('/api/price');
+            const data = await res.json();
+            if (data.price) {
+                setPrice(data.price);
+                setLastUpdated(new Date());
+            }
             setLoading(false);
         } catch (error) {
             console.error("Failed to fetch ETH price:", error);

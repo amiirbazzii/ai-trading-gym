@@ -37,9 +37,10 @@ export interface Trade {
     position_size: number;
     remaining_position: number;
     trade_tps: TakeProfit[];
-    exit_price?: number;
     is_sl_hit?: boolean;
     updated_at?: string;
+    entry_order_type?: 'limit' | 'stop';
+    initial_price?: number;
 }
 
 export interface TradeSyncResult {

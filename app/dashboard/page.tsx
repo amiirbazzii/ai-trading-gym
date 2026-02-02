@@ -102,8 +102,11 @@ export default function DashboardPage() {
 
     const fetchPrice = async () => {
         try {
-            const price = await getEthPrice();
-            setCurrentPrice(price);
+            const res = await fetch('/api/price');
+            const data = await res.json();
+            if (data.price) {
+                setCurrentPrice(data.price);
+            }
         } catch (err) {
             console.error("Failed to fetch price", err);
         }

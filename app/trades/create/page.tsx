@@ -40,6 +40,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { createClient } from "@/utils/supabase/client";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
+import { getEthPrice } from "@/lib/price";
 
 // Helper to parse price strings handling both comma and dot as decimal separators
 function parsePrice(value: string): number {
@@ -228,10 +229,67 @@ export default function CreateTradePage() {
                 return;
             }
 
-            // 1. Create Trade
-            const { data: trade, error: tradeError } = await supabase
-                .from("trades")
-                .insert({
+            // ... (imports)
+            // Fetch price and infer order type
+            const priceRes = await fetch('/api/price').then(res => res.json()).catch(() => ({ price: 0 }));
+            const currentPrice = priceRes.price || 0;
+            let orderType = 'stop'; // Default to Breakout logic
+
+            console.log(`[CreateTrade] Current price at submission: ${currentPrice}`);
+
+            if (currentPrice > 0) {
+                const entry = parsePrice(values.entryPrice);
+                if (values.direction === 'long') {
+                    // Long Limit: Entry < Current (Wait for dip)
+                    // Long Stop: Entry > Current (Breakout)
+                    if (entry < currentPrice) {
+                        orderType = 'limit';
+                    } else {
+                        orderType = 'stop';
+                    }
+                } else {
+                    // Short Limit: Entry > Current (Wait for rally)
+                    // Short Stop: Entry < Current (Breakout down)
+                    if (entry > currentPrice) {
+                        orderType = 'limit';
+                    } else {
+                        orderType = 'stop';
+                    }
+                }
+            }
+            console.log(`[CreateTrade] Inferred order type: ${orderType} (Entry: ${values.entryPrice}, Price: ${currentPrice})`);
+
+            // 1. Create Trade (Try with order type first)
+            let tradeData = null;
+            let tradeError = null;
+
+            try {
+                const { data, error } = await supabase
+                    .from("trades")
+                    .insert({
+                        user_id: user.id,
+                        direction: values.direction,
+                        entry_price: parsePrice(values.entryPrice),
+                        sl: parsePrice(values.stopLoss),
+                        status: "pending_entry",
+                        position_size: 1000,
+                        remaining_position: 1000,
+                        entry_order_type: orderType,
+                        initial_price: currentPrice
+                    })
+                    .select()
+                    .single();
+
+                tradeData = data;
+                tradeError = error;
+            } catch (ignored) {
+                // Should not throw here usually, but just in case
+            }
+
+            // Fallback: If column missing (code PGRST204? or error message), try without it
+            if (tradeError && (tradeError.message?.includes("entry_order_type") || tradeError.message?.includes("initial_price") || tradeError.code === "42703")) {
+                console.warn("Database missing some columns. Falling back to default.");
+                const payload: any = {
                     user_id: user.id,
                     direction: values.direction,
                     entry_price: parsePrice(values.entryPrice),
@@ -239,14 +297,33 @@ export default function CreateTradePage() {
                     status: "pending_entry",
                     position_size: 1000,
                     remaining_position: 1000,
-                })
-                .select()
-                .single();
+                };
+
+                // Add columns only if they didn't cause the error (simple heuristic)
+                if (!tradeError.message?.includes("entry_order_type")) payload.entry_order_type = orderType;
+                if (!tradeError.message?.includes("initial_price")) payload.initial_price = currentPrice;
+
+                const { data, error } = await supabase
+                    .from("trades")
+                    .insert(payload)
+                    .select()
+                    .single();
+
+                tradeData = data;
+                tradeError = error;
+
+                if (!error) {
+                    toast.warning("Trade created, but Limit/Stop logic requires a DB update. Check console.");
+                }
+            }
 
             if (tradeError) {
                 console.error("Trade Insert Error:", tradeError);
                 throw new Error(`Trade insert failed: ${tradeError.message}`);
             }
+
+            const trade = tradeData;
+            if (!trade) throw new Error("No trade data returned");
 
             // 2. Create TPs
             const tps = values.takeProfits.map((tp) => ({

@@ -26,6 +26,7 @@ export interface Trade {
     ai_name?: string;
     tps: TakeProfit[];
     updated_at?: string;
+    entry_order_type?: 'limit' | 'stop'; // 'limit' = wait for pullback, 'stop' = wait for breakout
 }
 
 export interface StrategyStats {
